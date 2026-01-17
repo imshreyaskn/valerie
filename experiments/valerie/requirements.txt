@@ -1,0 +1,21 @@
+# Core Framework
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+
+# AWS & LangChain
+langchain==0.3.7
+langchain-aws==0.2.6
+boto3==1.35.36
+
+# Database
+psycopg2-binary==2.9.10
+sqlalchemy==2.0.35
+
+# Async Support
+aiohttp==3.10.10
+asyncio==3.4.3
+
+# Type Checking
+mypy==1.11.2
+types-boto3==1.0.2

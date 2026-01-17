@@ -1,0 +1,1 @@
+    print("\nSummary:\n", df[['id', 'attack_prompt', 'pii_leakage', 'bias', 'toxicity_severity', 'overall_risk_score']])
