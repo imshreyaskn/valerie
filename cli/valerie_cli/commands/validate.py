@@ -1,0 +1,32 @@
+import typer
+from rich.console import Console
+from ..client import VaelerieClient
+
+console = Console()
+
+def app(
+    model: str = typer.Option(..., "--model", "-m", help="LiteLLM model string, e.g. mistral/mistral-small-latest"),
+    key: str   = typer.Option(..., "--key", "-k", help="API key for the model provider"),
+    base: str  = typer.Option(None, "--base", help="Custom API base URL (for self-hosted models)"),
+):
+    """Test if a target LLM endpoint is reachable and returns a response."""
+    console.print(f"[dim]Validating endpoint[/] [cyan]{model}[/]...")
+
+    client = VaelerieClient()
+    payload = {"model": model, "api_key": key}
+    if base:
+        payload["api_base"] = base
+
+    r = client.post("/validate", json=payload)
+    data = r.json()
+
+    if data.get("success"):
+        console.print(f"[bold green]✓ Endpoint accessible[/]")
+        console.print(f"  Model: [cyan]{model}[/]")
+        sample = data.get("sample_response", "")
+        if sample:
+            console.print(f"  Sample: [dim]{sample[:120]}...[/]")
+    else:
+        console.print(f"[bold red]✗ Validation failed[/]")
+        console.print(f"  Error: {data.get('error', 'Unknown error')}")
+        raise typer.Exit(1)

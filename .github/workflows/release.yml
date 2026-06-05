@@ -1,0 +1,119 @@
+name: Release CLI Binaries
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-binaries:
+    name: Build ${{ matrix.os }} binary
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: valerie-linux-amd64
+            binary_name: valerie
+          - os: windows-latest
+            artifact_name: valerie-windows-amd64.exe
+            binary_name: valerie.exe
+          - os: macos-latest
+            artifact_name: valerie-macos-amd64
+            binary_name: valerie
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install CLI dependencies + PyInstaller
+        run: |
+          pip install pyinstaller
+          pip install ./cli
+
+      - name: Build binary with PyInstaller
+        run: |
+          pyinstaller \
+            --onefile \
+            --name valerie \
+            --distpath dist \
+            cli/valerie_cli/main.py
+
+      - name: Rename binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: Move-Item dist\valerie.exe dist\${{ matrix.artifact_name }}
+        shell: pwsh
+
+      - name: Rename binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: mv dist/valerie dist/${{ matrix.artifact_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Valerie CLI ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Valerie CLI ${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+
+            **Linux / macOS:**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/valerie-linux-amd64 -o valerie
+            chmod +x valerie
+            sudo mv valerie /usr/local/bin/
+            valerie init
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/valerie-windows-amd64.exe" -OutFile valerie.exe
+            # Add to PATH or run from current directory
+            .\valerie.exe init
+            ```
+
+            ### Quick Start
+            ```
+            valerie init                          # connect to your Valerie backend
+            valerie validate --model mistral/mistral-small-latest --key $MISTRAL_KEY
+            valerie run --domain bfsi --target-model mistral/mistral-small-latest --target-key $MISTRAL_KEY
+            ```
+          files: |
+            dist/valerie-linux-amd64
+            dist/valerie-windows-amd64.exe
+            dist/valerie-macos-amd64
+          draft: false
+          prerelease: false

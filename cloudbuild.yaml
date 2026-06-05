@@ -1,0 +1,23 @@
+steps:
+  - name: 'python:3.12-slim'
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        pip install -r requirements.txt
+        python -m py_compile src/valerie/api/main.py
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/valerie/app:$COMMIT_SHA', '.']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/valerie/app:$COMMIT_SHA']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    args:
+      - gcloud
+      - run
+      - deploy
+      - valerie-api
+      - --image=us-central1-docker.pkg.dev/$PROJECT_ID/valerie/app:$COMMIT_SHA
+      - --region=us-central1

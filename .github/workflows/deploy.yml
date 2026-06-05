@@ -1,0 +1,77 @@
+name: Build & Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'cli/**'
+      - '**.md'
+      - 'infra/**'
+
+env:
+  PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
+  REGION:       us-central1
+  REGISTRY:     us-central1-docker.pkg.dev
+  IMAGE:        us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/valerie/app
+
+jobs:
+  build-push-deploy:
+    name: Build, Push & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # for Workload Identity Federation
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t ${{ env.IMAGE }}:${{ github.sha }} -t ${{ env.IMAGE }}:latest .
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:latest
+
+      - name: Deploy API to Cloud Run
+        run: |
+          gcloud run deploy valerie-api \
+            --image=${{ env.IMAGE }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --quiet
+
+      - name: Deploy Worker to Cloud Run
+        run: |
+          gcloud run deploy valerie-worker \
+            --image=${{ env.IMAGE }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --quiet
+
+      - name: Run Alembic migrations against Supabase
+        run: |
+          pip install -r requirements.txt
+          mkdir -p alembic/versions
+          PYTHONPATH=src DATABASE_URL="${{ secrets.SUPABASE_DB_URL }}" \
+            python -m alembic upgrade head
+
+      - name: Print deployed URL
+        run: |
+          API_URL=$(gcloud run services describe valerie-api \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --format='value(status.url)')
+          echo "::notice title=API URL::$API_URL"
+          echo "Deployed: $API_URL"
