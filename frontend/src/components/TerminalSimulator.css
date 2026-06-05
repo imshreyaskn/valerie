@@ -1,6 +1,6 @@
 .terminal-container {
-  margin: 4rem auto 2rem auto;
-  max-width: 1100px;
+  margin: 4rem auto 8rem auto;
+  max-width: 900px;
   width: calc(100% - 2rem);
   min-height: 220px;
   text-align: left;
