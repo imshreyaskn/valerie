@@ -46,7 +46,7 @@ export default function TerminalSimulator() {
         {phase >= 1 && (
           <>
             <br/><br/>
-            <span className="terminal-muted">[INIT] Launching Red-Team Protocol | DOMAIN: BFSI | TARGET: MISTRAL/MISTRAL-SMALL</span>
+            <span className="terminal-muted">[INIT] Launching Adversarial Protocol | DOMAIN: BFSI | TARGET: MISTRAL/MISTRAL-SMALL</span>
           </>
         )}
         {phase >= 2 && (

@@ -8,7 +8,7 @@ export default function Hero() {
         <pre className="ascii-art">{HERO_ASCII_ART}</pre>
         <h1 className="hero-title">VALERIE.</h1>
         <p className="hero-subtitle">
-          Automated LLM Red-Teaming pipeline. Secure, self-hosted, domain-specific adversarial evaluations.
+          Automated LLM adversarial testing pipeline. Secure BYOK architecture for rigorous domain focused evaluations.
         </p>
 
         <a href="https://github.com/imshreyaskn/valerie" target="_blank" rel="noreferrer" className="github-button">
