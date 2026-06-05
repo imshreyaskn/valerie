@@ -57,7 +57,7 @@ def app(
 
     # Fetch default techniques if not specified
     if not techniques:
-        r = client.get("/attacks/")
+        r = client.get("/attacks/techniques")
         techniques = [t["id"] for t in r.json().get("techniques", [])]
 
     resolved_attacker = attacker_model or defaults.get("attacker_model")
