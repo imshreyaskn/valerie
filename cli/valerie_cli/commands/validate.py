@@ -18,17 +18,12 @@ def app(
         payload["api_base"] = base
 
     r = client.post("/validate/endpoint", json=payload)
-    if r.status_code == 404:
-        console.print("Validation failed")
-        console.print("  Error: API endpoint not found (/validate/endpoint)")
-        raise typer.Exit(1)
-        
     data = r.json()
 
-    if data.get("success"):
+    if data.get("is_valid"):
         console.print("Endpoint accessible")
         console.print(f"  Model: {model}")
-        sample = data.get("sample_response", "")
+        sample = data.get("response_preview", "")
         if sample:
             console.print(f"  Sample: {sample[:120]}...")
     else:

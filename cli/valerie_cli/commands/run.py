@@ -92,10 +92,6 @@ def app(
     console.print()
 
     r = client.post("/runs/", json=payload)
-    if r.status_code not in (200, 201):
-        console.print(f"Failed to start run: {r.text}")
-        raise typer.Exit(1)
-
     run_id = r.json()["run_id"]
     console.print(f"Run ID: {run_id}")
 
