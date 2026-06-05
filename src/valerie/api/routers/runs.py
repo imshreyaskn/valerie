@@ -31,7 +31,7 @@ class RunConfigRequest(BaseModel):
     max_concurrency: int = 10
 
 
-def _dispatch_task(payload: dict) -> None:
+async def _dispatch_task(payload: dict) -> None:
     project_id = os.getenv("GCP_PROJECT_ID")
     location = os.getenv("CLOUD_TASKS_LOCATION", "us-central1")
     queue = os.getenv("CLOUD_TASKS_QUEUE")
@@ -42,14 +42,11 @@ def _dispatch_task(payload: dict) -> None:
     if not use_cloud_tasks or not project_id or not queue:
         # Fallback to local HTTP
         import httpx
-        import asyncio
-        async def _local_call():
-            try:
-                async with httpx.AsyncClient(timeout=600.0) as client:
-                    await client.post(worker_url, json=payload)
-            except Exception as e:
-                logger.error(f"Local fallback dispatch failed: {e}")
-        asyncio.run(_local_call())
+        try:
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                await client.post(worker_url, json=payload)
+        except Exception as e:
+            logger.error(f"Local fallback dispatch failed: {e}")
         return
 
     logger.info(f"Dispatching run {run_id} to Cloud Tasks queue {queue}")
@@ -68,7 +65,10 @@ def _dispatch_task(payload: dict) -> None:
                 }
             }
         }
-        response = client.create_task(request={"parent": parent, "task": task})
+        # Run synchronous client API in threadpool or just call it since it's fast
+        import asyncio
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(None, lambda: client.create_task(request={"parent": parent, "task": task}))
         logger.info(f"Created task {response.name} for run {run_id}")
     except Exception as e:
         logger.error(f"Failed to create Cloud Task for run {run_id}: {e}")
@@ -101,7 +101,7 @@ async def create_run(
     payload["selected_techniques"] = payload.pop("techniques")
 
     # Enqueue Cloud Task immediately BEFORE returning, so Cloud Run CPU is active
-    _dispatch_task(payload)
+    await _dispatch_task(payload)
 
     return {"run_id": run_id, "status": "queued"}
 
