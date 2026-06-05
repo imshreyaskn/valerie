@@ -31,7 +31,7 @@ class RunConfigRequest(BaseModel):
     max_concurrency: int = 10
 
 
-async def _dispatch_task(payload: dict) -> None:
+async def _dispatch_task(payload: dict, background_tasks: BackgroundTasks) -> None:
     project_id = os.getenv("GCP_PROJECT_ID")
     location = os.getenv("CLOUD_TASKS_LOCATION", "us-central1")
     queue = os.getenv("CLOUD_TASKS_QUEUE")
@@ -40,13 +40,32 @@ async def _dispatch_task(payload: dict) -> None:
     run_id = payload.get("run_id", "unknown")
 
     if not use_cloud_tasks or not project_id or not queue:
-        # Fallback to local HTTP
-        import httpx
-        try:
-            async with httpx.AsyncClient(timeout=600.0) as client:
-                await client.post(worker_url, json=payload)
-        except Exception as e:
-            logger.error(f"Local fallback dispatch failed: {e}")
+        # Fallback to local BackgroundTasks instead of an HTTP call
+        logger.info(f"Using BackgroundTasks fallback for run {run_id}")
+        from valerie.graph.pipeline import run_pipeline
+        from valerie.db.engine import AsyncSession
+        from valerie.db.models import PipelineRun
+        
+        async def _run_and_handle(config):
+            try:
+                # Mark as running
+                async with AsyncSession() as session:
+                    run = await session.get(PipelineRun, config.get("run_id"))
+                    if run:
+                        run.status = "running"
+                        await session.commit()
+                # Run the pipeline (this handles completion)
+                await run_pipeline(config)
+            except Exception as e:
+                logger.error(f"Pipeline fallback failed: {e}")
+                async with AsyncSession() as session:
+                    run = await session.get(PipelineRun, config.get("run_id"))
+                    if run:
+                        run.status = "failed"
+                        run.error_message = str(e)
+                        await session.commit()
+
+        background_tasks.add_task(_run_and_handle, payload)
         return
 
     logger.info(f"Dispatching run {run_id} to Cloud Tasks queue {queue}")
@@ -76,6 +95,7 @@ async def _dispatch_task(payload: dict) -> None:
 @router.post("/")
 async def create_run(
     config: RunConfigRequest,
+    background_tasks: BackgroundTasks,
     user=Depends(require_api_key),
 ):
     run_id = str(uuid4())
@@ -101,7 +121,7 @@ async def create_run(
     payload["selected_techniques"] = payload.pop("techniques")
 
     # Enqueue Cloud Task immediately BEFORE returning, so Cloud Run CPU is active
-    await _dispatch_task(payload)
+    await _dispatch_task(payload, background_tasks)
 
     return {"run_id": run_id, "status": "queued"}
 
