@@ -1,5 +1,5 @@
 import typer
-import httpx
+import requests
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from .. import config
@@ -29,7 +29,7 @@ def app():
     console.print("Verifying connection...", end=" ")
 
     try:
-        r = httpx.get(f"{backend_url}/domains/", headers={"X-API-Key": api_key}, timeout=10)
+        r = requests.get(f"{backend_url}/domains/", headers={"X-API-Key": api_key}, timeout=10)
         if r.status_code == 200:
             domains = [d["id"] for d in r.json().get("domains", [])]
             console.print("Connected")
@@ -39,7 +39,7 @@ def app():
             raise typer.Exit(1)
         else:
             console.print(f"Server responded {r.status_code}")
-    except httpx.ConnectError:
+    except requests.exceptions.ConnectionError:
         console.print("Cannot reach backend")
         raise typer.Exit(1)
 
