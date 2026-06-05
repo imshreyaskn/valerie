@@ -299,7 +299,7 @@ class SeleneAgent:
 def main():
     """Main execution function."""
     # Configuration - consider using environment variables for API keys
-    MISTRAL_API_KEY = "JMmCih6DSuIHv06FHbLaAOk5Dpxdsp5Q"
+    MISTRAL_API_KEY = ""
     
     # Initialize the agent
     agent = SeleneAgent(api_key=MISTRAL_API_KEY)
