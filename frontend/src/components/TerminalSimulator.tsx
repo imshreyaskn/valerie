@@ -39,7 +39,7 @@ export default function TerminalSimulator() {
     <div className="terminal-container">
       <div className="terminal-header">
         <span>TERMINAL [OUTPUT_BUFFER]</span>
-        <span>VALERIE [v0.1.1]</span>
+        <span>VALERIE [v0.1.2]</span>
       </div>
       <div className="terminal-body">
         <span>$ {typedCommand}{phase === 0 && typedCommand.length < command.length ? '█' : ''}</span>

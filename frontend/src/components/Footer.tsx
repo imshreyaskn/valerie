@@ -17,7 +17,7 @@ export default function Footer() {
         06/05/2026
       </div>
       <div className="oversized-footer-version">
-        v.0.1.1
+        v.0.1.2
       </div>
     </footer>
   );

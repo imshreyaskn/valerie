@@ -1,9 +1,9 @@
 <div align="center">
-  <a href="https://valerie.vercel.app">
+  <a href="https://valerie-beta.vercel.app/">
     <img src="assets/logo.png" alt="Valerie Logo" width="180" />
   </a>
   <br />
-  <h1><a href="https://valerie.vercel.app">Valerie</a></h1>
+  <h1><a href="https://valerie-beta.vercel.app/">Valerie</a></h1>
   <p><b>Automated LLM Red-Teaming Framework</b></p>
 </div>
 
