@@ -42,4 +42,9 @@ resource "google_cloud_run_v2_service_iam_member" "worker_invoker" {
   member   = "serviceAccount:${google_service_account.cloudrun_sa.email}"
 }
 
-
+# Allow the SA to impersonate itself (needed for gcloud run deploy --service-account)
+resource "google_service_account_iam_member" "self_act_as" {
+  service_account_id = google_service_account.cloudrun_sa.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.cloudrun_sa.email}"
+}
