@@ -7,6 +7,7 @@ on:
       - 'cli/**'
       - '**.md'
       - 'infra/**'
+  workflow_dispatch:   # allow manual trigger from GitHub UI / gh CLI
 
 env:
   PROJECT_ID:   ${{ secrets.GCP_PROJECT_ID }}
