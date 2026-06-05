@@ -5,10 +5,12 @@ from valerie.db.engine import AsyncSession
 from pydantic import BaseModel
 import os
 import json
-import httpx
 import logging
 from uuid import uuid4
 from sqlmodel import select
+from google.cloud import tasks_v2
+from google.protobuf import timestamp_pb2
+import datetime
 
 router = APIRouter(prefix="/runs", tags=["Runs"])
 logger = logging.getLogger("api.runs")
@@ -29,29 +31,47 @@ class RunConfigRequest(BaseModel):
     max_concurrency: int = 10
 
 
-async def _dispatch_to_worker(payload: dict) -> None:
-    """Fire-and-forget: call the worker. Runs as a FastAPI BackgroundTask."""
+def _dispatch_task(payload: dict) -> None:
+    project_id = os.getenv("GCP_PROJECT_ID")
+    location = os.getenv("CLOUD_TASKS_LOCATION", "us-central1")
+    queue = os.getenv("CLOUD_TASKS_QUEUE")
     worker_url = os.getenv("WORKER_URL", "http://localhost:8081/internal/run")
+    use_cloud_tasks = os.getenv("WORKER_USE_CLOUD_TASKS", "false").lower() == "true"
     run_id = payload.get("run_id", "unknown")
-    logger.info(f"Dispatching run {run_id} to worker at {worker_url}")
-    try:
-        # Use a long timeout — worker will run LLM calls for several minutes
-        async with httpx.AsyncClient(timeout=600.0) as client:
-            resp = await client.post(worker_url, json=payload)
-            logger.info(f"Worker responded {resp.status_code} for run {run_id}")
-    except Exception as e:
-        logger.error(f"Failed to dispatch run {run_id} to worker: {e}")
-        # Mark as failed in DB
-        try:
-            async with AsyncSession() as session:
-                run = await session.get(PipelineRun, run_id)
-                if run:
-                    run.status = "failed"
-                    run.error_message = str(e)
-                    await session.commit()
-        except Exception as db_err:
-            logger.error(f"Also failed to update DB status: {db_err}")
 
+    if not use_cloud_tasks or not project_id or not queue:
+        # Fallback to local HTTP
+        import httpx
+        import asyncio
+        async def _local_call():
+            try:
+                async with httpx.AsyncClient(timeout=600.0) as client:
+                    await client.post(worker_url, json=payload)
+            except Exception as e:
+                logger.error(f"Local fallback dispatch failed: {e}")
+        asyncio.run(_local_call())
+        return
+
+    logger.info(f"Dispatching run {run_id} to Cloud Tasks queue {queue}")
+    try:
+        client = tasks_v2.CloudTasksClient()
+        parent = client.queue_path(project_id, location, queue)
+
+        task = {
+            "http_request": {
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": worker_url,
+                "headers": {"Content-type": "application/json"},
+                "body": json.dumps(payload).encode(),
+                "oidc_token": {
+                    "service_account_email": f"valerie-cloudrun@{project_id}.iam.gserviceaccount.com"
+                }
+            }
+        }
+        response = client.create_task(request={"parent": parent, "task": task})
+        logger.info(f"Created task {response.name} for run {run_id}")
+    except Exception as e:
+        logger.error(f"Failed to create Cloud Task for run {run_id}: {e}")
 
 @router.post("/")
 async def create_run(
@@ -81,11 +101,9 @@ async def create_run(
     payload["run_id"] = run_id
     payload["selected_techniques"] = payload.pop("techniques")
 
-    # BackgroundTasks runs AFTER the response is sent but BEFORE Cloud Run shuts down
-    background_tasks.add_task(_dispatch_to_worker, payload)
+    background_tasks.add_task(_dispatch_task, payload)
 
     return {"run_id": run_id, "status": "queued"}
-
 
 @router.get("/")
 async def list_runs(limit: int = 50, offset: int = 0, user=Depends(require_api_key)):
@@ -99,7 +117,6 @@ async def list_runs(limit: int = 50, offset: int = 0, user=Depends(require_api_k
         results = await session.execute(statement)
         runs = results.scalars().all()
         return {"runs": runs}
-
 
 @router.get("/{run_id}")
 async def get_run(run_id: str, user=Depends(require_api_key)):
