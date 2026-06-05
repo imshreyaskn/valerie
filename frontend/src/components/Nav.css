@@ -1,0 +1,45 @@
+.nav-sticky-wrapper {
+  position: sticky;
+  top: 1rem;
+  z-index: 100;
+  width: 100%;
+  height: 0;
+}
+
+.top-nav {
+  position: absolute;
+  top: 3rem;
+  right: 3rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.version-tag {
+  font-size: 0.75rem;
+  color: var(--color-steel);
+  letter-spacing: 0.05em;
+}
+
+.github-icon-btn {
+  color: var(--color-slate);
+  background-color: transparent;
+  border: 1px solid var(--color-slate);
+  padding: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.github-icon-btn:hover {
+  background-color: var(--color-slate);
+  color: var(--bg-color);
+}
+
+@media (max-width: 900px) {
+  .top-nav {
+    top: 1rem;
+    right: 1rem;
+  }
+}
