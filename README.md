@@ -56,8 +56,7 @@ Fetches the final evaluation metrics from the database and renders a beautiful t
 
 ### 1. Prerequisites
 - Python 3.10+
-- AWS Account (with Bedrock access enabled)
-- Mistral AI API Key
+- An API Key from a supported provider (e.g., Mistral, OpenAI, Anthropic, or AWS Bedrock if using Bedrock endpoints)
 
 ### 2. Installation
 Clone the repository, install the backend dependencies, and install the CLI globally:
