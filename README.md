@@ -54,24 +54,47 @@ Fetches the final evaluation metrics from the database and renders a beautiful t
 
 ## 🚀 Quick Start
 
-### 1. Prerequisites
-- Python 3.10+
-- An API Key from a supported provider (e.g., Mistral, OpenAI, Anthropic, or AWS Bedrock if using Bedrock endpoints)
+### 👨‍💻 For End Users (CLI Only)
+You do not need to host the backend or deal with `.env` files. Just install the CLI and point it to the central Valerie SaaS URL!
 
-### 2. Installation
-Clone the repository, install the backend dependencies, and install the CLI globally:
+**1. Install the CLI:**
 ```bash
+git clone https://github.com/imshreyaskn/valerie.git
+cd valerie/cli
+pip install -e .
+```
+*(Note: Once published to PyPI, this will simply be `pip install valerie-cli`)*
+
+**2. Authenticate:**
+```bash
+valerie init
+```
+*Enter the provided backend URL (e.g., `https://valerie-api-...run.app`) and your API Key.*
+
+---
+
+### 🏗️ For Enterprise / Self-Hosting (Backend Server)
+If you are contributing to the codebase or need to host the backend API on your own private cloud, follow these steps:
+
+**1. Prerequisites:**
+- Python 3.10+
+- A Postgres Database (or SQLite for local testing)
+- Google Cloud SDK (if deploying to Cloud Run)
+
+**2. Backend Installation:**
+```bash
+git clone https://github.com/imshreyaskn/valerie.git
+cd valerie
 pip install -r requirements.txt
-pip install -e ./cli
 ```
 
-### 3. Backend Configuration
-Copy the template and fill in your credentials (like `DATABASE_URL` and your API keys):
+**3. Environment Configuration:**
+Copy the template and fill in your database credentials:
 ```bash
 cp .env.example .env
 ```
 > [!IMPORTANT]
-> To run the backend locally or deploy it, make sure your `.env` is fully populated. To use the CLI, you must first run `valerie init` to authenticate with your backend.
+> To run the backend locally or deploy it, make sure your `.env` is fully populated. The FastAPI backend will not start if the database URL is missing.
 
 ---
 
@@ -108,12 +131,12 @@ Valerie/
 
 ---
 
-## ⚙️ Advanced Configuration
+## ⚙️ Advanced Configuration (Self-Hosted)
 
-Configuration is managed via **Pydantic Settings** in `valerie/core/settings.py`. 
+If you are deploying the backend yourself, configuration is managed via **Pydantic Settings** in `valerie/core/settings.py`. 
 
 - **Environment Isolation**: Easily switch between `development`, `staging`, and `production`.
-- **Fail-Fast Validation**: The application validates all environment variables at startup to prevent runtime crashes.
+- **Fail-Fast Validation**: The backend validates all environment variables at startup to prevent runtime crashes.
 - **Customizable Timeouts**: Tune `LLM_TIMEOUT_SECONDS` and `ATTACK_MAX_ITERATIONS` for complex attack refinement.
 
 ---
