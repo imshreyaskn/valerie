@@ -17,7 +17,12 @@ def app(
     if base:
         payload["api_base"] = base
 
-    r = client.post("/validate", json=payload)
+    r = client.post("/validate/endpoint", json=payload)
+    if r.status_code == 404:
+        console.print("Validation failed")
+        console.print("  Error: API endpoint not found (/validate/endpoint)")
+        raise typer.Exit(1)
+        
     data = r.json()
 
     if data.get("success"):
