@@ -1,7 +1,7 @@
 .footer-metadata {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  padding: 2rem 1rem;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 2rem 1rem 0 1rem;
   font-family: monospace;
   font-size: 0.7rem;
   color: var(--text-secondary);
@@ -17,9 +17,23 @@
   color: var(--text-primary);
 }
 
+.massive-version {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 18vw;
+  font-weight: 800;
+  color: var(--color-slate);
+  text-align: center;
+  line-height: 0.8;
+  letter-spacing: -0.05em;
+  margin-top: 2rem;
+  user-select: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 @media (max-width: 900px) {
   .footer-metadata {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 1rem;
   }
 }
