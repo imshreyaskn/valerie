@@ -76,7 +76,6 @@ def _dispatch_task(payload: dict) -> None:
 @router.post("/")
 async def create_run(
     config: RunConfigRequest,
-    background_tasks: BackgroundTasks,
     user=Depends(require_api_key),
 ):
     run_id = str(uuid4())
@@ -101,7 +100,8 @@ async def create_run(
     payload["run_id"] = run_id
     payload["selected_techniques"] = payload.pop("techniques")
 
-    background_tasks.add_task(_dispatch_task, payload)
+    # Enqueue Cloud Task immediately BEFORE returning, so Cloud Run CPU is active
+    _dispatch_task(payload)
 
     return {"run_id": run_id, "status": "queued"}
 
