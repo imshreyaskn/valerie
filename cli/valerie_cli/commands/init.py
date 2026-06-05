@@ -29,7 +29,7 @@ def app():
     console.print("Verifying connection...", end=" ")
 
     try:
-        r = requests.get(f"{backend_url}/domains/", headers={"X-API-Key": api_key}, timeout=10)
+        r = requests.get(f"{backend_url}/domains/", headers={"X-API-Key": api_key}, timeout=30)
         if r.status_code == 200:
             domains = [d["id"] for d in r.json().get("domains", [])]
             console.print("Connected")
@@ -39,8 +39,8 @@ def app():
             raise typer.Exit(1)
         else:
             console.print(f"Server responded {r.status_code}")
-    except requests.exceptions.ConnectionError:
-        console.print("Cannot reach backend")
+    except requests.exceptions.RequestException as e:
+        console.print(f"[red]Cannot reach backend (or it timed out).[/] Ensure the URL is correct and the server is running.")
         raise typer.Exit(1)
 
     cfg = config.load()
