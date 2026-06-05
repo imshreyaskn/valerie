@@ -45,7 +45,7 @@ async def test():
             if status == "completed":
                 break
                 
-        res = await client.get(f"http://localhost:8080/runs/{run_id}/results", headers={"X-API-Key": "default-dev-key"})
+        res = await client.get(f"http://localhost:8080/runs/{run_id}/results", headers={"X-API-Key": "32-byte-base64-fernet-key"})
         print("Results length:", len(res.json()["results"]))
         if res.json()["results"]:
             print("Sample result score:", res.json()["results"][0].get("overall_risk_score"))

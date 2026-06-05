@@ -121,7 +121,7 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
 resource "google_cloud_run_v2_service" "worker" {
   name     = "valerie-worker"
   location = var.region
-  ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  ingress  = "INGRESS_TRAFFIC_ALL"
   deletion_protection = false
 
   template {
