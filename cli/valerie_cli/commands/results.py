@@ -19,11 +19,11 @@ def list_runs(limit: int = typer.Option(20, "--limit", "-n", help="Number of run
     runs = r.json().get("runs", [])
 
     if not runs:
-        console.print("[dim]No runs found.[/]")
+        console.print("No runs found.")
         return
 
-    table = Table(title="Pipeline Runs", box=box.ROUNDED, header_style="bold magenta")
-    table.add_column("Run ID", style="dim", max_width=12)
+    table = Table(title="Pipeline Runs", box=box.ROUNDED)
+    table.add_column("Run ID", max_width=12)
     table.add_column("Domain")
     table.add_column("Status")
     table.add_column("Tasks", justify="right")
@@ -33,12 +33,7 @@ def list_runs(limit: int = typer.Option(20, "--limit", "-n", help="Number of run
 
     for run in runs:
         status = run.get("status", "")
-        status_fmt = {
-            "completed": "[green]completed[/]",
-            "running":   "[yellow]running[/]",
-            "queued":    "[dim]queued[/]",
-            "failed":    "[red]failed[/]",
-        }.get(status, status)
+        status_fmt = status
 
         table.add_row(
             run.get("id", "")[:8] + "...",
@@ -60,16 +55,16 @@ def status(
     client = VaelerieClient()
     r = client.get(f"/runs/{run_id}")
     if r.status_code == 404:
-        console.print(f"[red]Run not found: {run_id}[/]")
+        console.print(f"Run not found: {run_id}")
         raise typer.Exit(1)
     run = r.json()
-    console.print(f"Status:      [bold]{run.get('status')}[/]")
+    console.print(f"Status:      {run.get('status')}")
     console.print(f"Domain:      {run.get('domain')}")
     console.print(f"Total tasks: {run.get('total_tasks', 0)}")
     console.print(f"Breakthroughs: {run.get('successful_attacks', 0)}")
     console.print(f"Avg score:   {run.get('avg_risk_score', 0.0):.2f}")
     if run.get("error_message"):
-        console.print(f"Error: [red]{run['error_message']}[/]")
+        console.print(f"Error: {run['error_message']}")
 
 @app.command("results")
 def results(
@@ -82,7 +77,7 @@ def results(
     client = VaelerieClient()
     r = client.get(f"/runs/{run_id}/results")
     if r.status_code == 404:
-        console.print(f"[red]Run not found: {run_id}[/]")
+        console.print(f"Run not found: {run_id}")
         raise typer.Exit(1)
 
     results_data = r.json().get("results", [])
@@ -91,11 +86,11 @@ def results(
 
     if export:
         export.write_text(json.dumps(filtered_sorted, indent=2))
-        console.print(f"[green]✓ Exported {len(filtered_sorted)} results to [bold]{export}[/][/]")
+        console.print(f"Exported {len(filtered_sorted)} results to {export}")
         return
 
-    table = Table(title=f"Results: {run_id[:8]}...", box=box.ROUNDED, header_style="bold")
-    table.add_column("Score", justify="right", style="bold")
+    table = Table(title=f"Results: {run_id[:8]}...", box=box.ROUNDED)
+    table.add_column("Score", justify="right")
     table.add_column("Harm Type")
     table.add_column("Technique")
     table.add_column("Breakthrough")
@@ -105,15 +100,15 @@ def results(
 
     for res in filtered_sorted:
         score = res.get("overall_risk_score", 0)
-        score_str = f"[red]{score:.2f}[/]" if score >= 0.7 else f"[yellow]{score:.2f}[/]" if score >= 0.4 else f"{score:.2f}"
+        score_str = f"{score:.2f}"
         table.add_row(
             score_str,
             res.get("harm_type", ""),
             res.get("technique_id", ""),
-            "[red]✔[/]" if res.get("is_breakthrough") else "[dim]✘[/]",
+            "Y" if res.get("is_breakthrough") else "N",
             str(res.get("iterations_used", 1)),
-            "[red]✔[/]" if res.get("pii_leakage") else "[dim]✘[/]",
-            "[red]✔[/]" if res.get("toxicity") else "[dim]✘[/]",
+            "Y" if res.get("pii_leakage") else "N",
+            "Y" if res.get("toxicity") else "N",
         )
 
     console.print(table)
@@ -122,9 +117,8 @@ def results(
         for res in filtered_sorted[:3]:
             console.print()
             console.print(Panel(
-                f"[bold]Adversarial Prompt:[/]\n{res.get('adversarial_prompt', '')}\n\n"
-                f"[bold]Target Response:[/]\n{res.get('target_response', '')}\n\n"
-                f"[bold]Safety Concern:[/]\n[dim]{res.get('safety_concern', '')}[/]",
+                f"Adversarial Prompt:\n{res.get('adversarial_prompt', '')}\n\n"
+                f"Target Response:\n{res.get('target_response', '')}\n\n"
+                f"Safety Concern:\n{res.get('safety_concern', '')}",
                 title=f"{res.get('harm_type')} / {res.get('technique_id')} — Score: {res.get('overall_risk_score', 0):.2f}",
-                border_style="red" if res.get("is_breakthrough") else "yellow",
             ))

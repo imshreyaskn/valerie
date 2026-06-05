@@ -82,26 +82,25 @@ def app(
     }
 
     # Print run summary
-    console.print()
-    console.print("[bold magenta]✨ Launching Red-Team Run[/]")
-    console.print(f"  Domain:     [cyan]{domain}[/]")
-    console.print(f"  Harm types: [cyan]{len(harm_types)} selected[/]")
-    console.print(f"  Techniques: [cyan]{len(techniques)} selected[/]")
-    console.print(f"  Target:     [cyan]{target_model}[/]")
-    console.print(f"  Attacker:   [cyan]{resolved_attacker}[/]")
-    console.print(f"  Judge:      [cyan]{resolved_judge}[/]")
+    console.print("Launching Red-Team Run")
+    console.print(f"Domain: {domain}")
+    console.print(f"Harm types: {len(harm_types)} selected")
+    console.print(f"Techniques: {len(techniques)} selected")
+    console.print(f"Target: {target_model}")
+    console.print(f"Attacker: {resolved_attacker}")
+    console.print(f"Judge: {resolved_judge}")
     console.print()
 
     r = client.post("/runs/", json=payload)
     if r.status_code not in (200, 201):
-        console.print(f"[red]Failed to start run: {r.text}[/]")
+        console.print(f"Failed to start run: {r.text}")
         raise typer.Exit(1)
 
     run_id = r.json()["run_id"]
-    console.print(f"  Run ID: [bold]{run_id}[/]")
+    console.print(f"Run ID: {run_id}")
 
     if not wait:
-        console.print("[dim]Use 'valerie runs status {run_id}' to check progress[/]")
+        console.print(f"Use 'valerie runs status {run_id}' to check progress")
         return
 
     # Poll for completion
@@ -120,13 +119,13 @@ def app(
             run_data = r.json()
             status = run_data.get("status", "unknown")
             total = run_data.get("total_tasks", 0)
-            progress.update(task, description=f"[cyan]{status}[/] ({total} tasks)")
+            progress.update(task, description=f"{status} ({total} tasks)")
 
             if status == "completed":
                 break
             elif status == "failed":
                 progress.stop()
-                console.print(f"[bold red]✗ Run failed:[/] {run_data.get('error_message', 'Unknown error')}")
+                console.print(f"Run failed: {run_data.get('error_message', 'Unknown error')}")
                 raise typer.Exit(1)
 
     elapsed = int(time.time() - start)
@@ -140,14 +139,14 @@ def _print_summary(run_data: dict, run_id: str, elapsed: int):
     pct = (breakthroughs / total * 100) if total > 0 else 0
 
     console.print()
-    console.print(f"[bold green]✓ Completed in {elapsed}s[/]")
+    console.print(f"Completed in {elapsed}s")
     console.print()
 
-    table = Table(title="Results Summary", box=box.ROUNDED, show_header=True, header_style="bold")
-    table.add_column("Metric", style="dim")
+    table = Table(title="Results Summary", box=box.ROUNDED, show_header=True)
+    table.add_column("Metric")
     table.add_column("Value", justify="right")
     table.add_row("Total Tasks", str(total))
-    table.add_row("Breakthroughs", f"[bold red]{breakthroughs}[/]  ({pct:.0f}%)")
+    table.add_row("Breakthroughs", f"{breakthroughs} ({pct:.0f}%)")
     table.add_row("Avg Risk Score", f"{avg_score:.2f}")
     table.add_row("Run ID", run_id)
     console.print(table)
@@ -161,13 +160,12 @@ def _print_top_results(client: VaelerieClient, run_id: str):
     results_sorted = sorted(results, key=lambda x: x.get("overall_risk_score", 0), reverse=True)[:5]
 
     console.print()
-    console.print("[bold]Top Vulnerabilities:[/]")
+    console.print("Top Vulnerabilities:")
     for res in results_sorted:
         score = res.get("overall_risk_score", 0)
-        icon = "🔴" if score >= 0.7 else ("🟡" if score >= 0.4 else "🟢")
         harm = res.get("harm_type", "")
         tech = res.get("technique_id", "")
-        console.print(f"  {icon} [bold]{score:.2f}[/]  {harm} / {tech}")
+        console.print(f"  {score:.2f}  {harm} / {tech}")
 
     console.print()
-    console.print(f"  [dim]Full results: valerie runs results {run_id}[/]")
+    console.print(f"  Full results: valerie runs results {run_id}")

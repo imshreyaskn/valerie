@@ -10,11 +10,11 @@ app = typer.Typer(help="Manage CLI configuration", no_args_is_help=True)
 def show():
     """Print current configuration."""
     cfg = config.load()
-    table = Table(title="Valerie CLI Config", show_header=True, header_style="bold magenta")
-    table.add_column("Key", style="cyan")
+    table = Table(title="Valerie CLI Config", show_header=True)
+    table.add_column("Key")
     table.add_column("Value")
-    table.add_row("backend_url", cfg.get("backend_url", "[red]not set[/]"))
-    table.add_row("api_key", "***" if cfg.get("api_key") else "[red]not set[/]")
+    table.add_row("backend_url", cfg.get("backend_url", "not set"))
+    table.add_row("api_key", "***" if cfg.get("api_key") else "not set")
     defaults = cfg.get("defaults", {})
     for k, v in defaults.items():
         table.add_row(f"defaults.{k}", str(v))
@@ -39,4 +39,4 @@ def set_cmd(
     else:
         cfg[key] = value
     config.save(cfg)
-    console.print(f"[green]✓[/] Set [cyan]{key}[/] = [bold]{value}[/]")
+    console.print(f"Set {key} = {value}")

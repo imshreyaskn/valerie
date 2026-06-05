@@ -4,8 +4,7 @@ from . import __version__
 
 app = typer.Typer(
     name="valerie",
-    help="[bold magenta]Valerie[/] — BYOK LLM Red-Teaming CLI",
-    rich_markup_mode="rich",
+    help="Valerie",
     no_args_is_help=True,
 )
 console = Console()
@@ -27,7 +26,7 @@ app.command("run")(run_app)
 @app.callback(invoke_without_command=True)
 def version_callback(version: bool = typer.Option(False, "--version", "-v", help="Show version")):
     if version:
-        console.print(f"valerie-cli [bold]{__version__}[/]")
+        console.print(f"valerie {__version__}")
         raise typer.Exit()
 
 if __name__ == "__main__":

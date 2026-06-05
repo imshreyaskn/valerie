@@ -10,7 +10,7 @@ def app(
     base: str  = typer.Option(None, "--base", help="Custom API base URL (for self-hosted models)"),
 ):
     """Test if a target LLM endpoint is reachable and returns a response."""
-    console.print(f"[dim]Validating endpoint[/] [cyan]{model}[/]...")
+    console.print(f"Validating endpoint {model}...")
 
     client = VaelerieClient()
     payload = {"model": model, "api_key": key}
@@ -21,12 +21,12 @@ def app(
     data = r.json()
 
     if data.get("success"):
-        console.print(f"[bold green]✓ Endpoint accessible[/]")
-        console.print(f"  Model: [cyan]{model}[/]")
+        console.print("Endpoint accessible")
+        console.print(f"  Model: {model}")
         sample = data.get("sample_response", "")
         if sample:
-            console.print(f"  Sample: [dim]{sample[:120]}...[/]")
+            console.print(f"  Sample: {sample[:120]}...")
     else:
-        console.print(f"[bold red]✗ Validation failed[/]")
+        console.print("Validation failed")
         console.print(f"  Error: {data.get('error', 'Unknown error')}")
         raise typer.Exit(1)
