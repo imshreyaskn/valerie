@@ -111,7 +111,10 @@ def app(
 
         while True:
             time.sleep(5)
-            r = client.get(f"/runs/{run_id}")
+            r = client.get(f"/runs/{run_id}", suppress_errors=True)
+            if not r:
+                continue # Skip update on temporary network timeout
+                
             run_data = r.json()
             status = run_data.get("status", "unknown")
             total = run_data.get("total_tasks", 0)
