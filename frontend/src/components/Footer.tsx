@@ -10,7 +10,7 @@ export default function Footer() {
       <div>
         <a href="https://linkedin.com/in/imshreyaskn" target="_blank" rel="noreferrer" className="footer-link">linkedin</a><br/>
         <a href="https://github.com/imshreyaskn" target="_blank" rel="noreferrer" className="footer-link">github</a><br/>
-        <a href="https://x.com/imshreyaskn" target="_blank" rel="noreferrer" className="footer-link">x (twitter)</a>
+        <a href="mailto:imshreyaskn@gmail.com" className="footer-link">imshreyaskn@gmail.com</a>
       </div>
       <div>
         updated on<br/>
