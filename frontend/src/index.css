@@ -1,0 +1,53 @@
+:root {
+  font-family: 'Aeonik', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  line-height: 1.2;
+  font-weight: 400;
+
+  /* Mountain Slate Color Palette */
+  --color-slate: #2B3243;
+  --color-steel: #727481;
+  --color-taupe: #AEA8A8;
+  --color-warm-grey: #E2DAD6;
+  --color-off-white: #F6EFEF;
+
+  --bg-color: var(--color-off-white);
+  --text-primary: var(--color-slate);
+  --text-secondary: var(--color-steel);
+  --border-color: var(--color-slate);
+  
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  /* Use a subtle grain or pure solid color for brutalism */
+}
+
+h1, h2, h3, h4, p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+}
