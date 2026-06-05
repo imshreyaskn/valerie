@@ -57,6 +57,11 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.project_id
       }
 
+      env {
+        name  = "WORKER_URL"
+        value = "${google_cloud_run_v2_service.worker.uri}/internal/run"
+      }
+
       # Secrets mounted from Secret Manager
       env {
         name = "DATABASE_URL"
