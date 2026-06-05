@@ -19,6 +19,13 @@ resource "google_project_iam_member" "artifact_writer" {
   member  = "serviceAccount:${google_service_account.cloudrun_sa.email}"
 }
 
+# Allow Cloud Run SA to deploy Cloud Run services (needed by GitHub Actions)
+resource "google_project_iam_member" "run_developer" {
+  project = var.project_id
+  role    = "roles/run.developer"
+  member  = "serviceAccount:${google_service_account.cloudrun_sa.email}"
+}
+
 # Allow Cloud Run SA to enqueue Cloud Tasks
 resource "google_project_iam_member" "tasks_enqueuer" {
   project = var.project_id
