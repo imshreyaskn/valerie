@@ -16,7 +16,7 @@ export default function Footer() {
         updated on<br/>
         06/05/2026
       </div>
-      <div className="footer-version-tag">
+      <div className="oversized-footer-version">
         v.0.1.1
       </div>
     </footer>
