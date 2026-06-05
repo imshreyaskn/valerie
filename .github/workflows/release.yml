@@ -37,12 +37,7 @@ jobs:
           pip install ./cli
 
       - name: Build binary with PyInstaller
-        run: |
-          pyinstaller \
-            --onefile \
-            --name valerie \
-            --distpath dist \
-            cli/valerie_cli/main.py
+        run: pyinstaller --onefile --name valerie --distpath dist cli/valerie_cli/main.py
 
       - name: Rename binary (Windows)
         if: matrix.os == 'windows-latest'

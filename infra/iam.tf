@@ -12,6 +12,13 @@ resource "google_project_iam_member" "secret_accessor" {
   member  = "serviceAccount:${google_service_account.cloudrun_sa.email}"
 }
 
+# Allow Cloud Run SA to push Docker images to Artifact Registry
+resource "google_project_iam_member" "artifact_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${google_service_account.cloudrun_sa.email}"
+}
+
 # Allow Cloud Run SA to enqueue Cloud Tasks
 resource "google_project_iam_member" "tasks_enqueuer" {
   project = var.project_id
