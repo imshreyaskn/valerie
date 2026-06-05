@@ -18,7 +18,7 @@ export default function Footer() {
       </div>
       <div>
         VALERIE<br/>
-        v0.1.0
+        <strong>v0.1.0</strong>
       </div>
     </footer>
   );
