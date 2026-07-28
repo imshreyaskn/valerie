@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   font-family: 'Aeonik', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   line-height: 1.2;
@@ -29,25 +31,119 @@ body {
   min-height: 100vh;
   background-color: var(--bg-color);
   color: var(--text-primary);
-  /* Use a subtle grain or pure solid color for brutalism */
 }
 
-h1, h2, h3, h4, p {
-  margin: 0;
+.dashboard-bg {
+  background-color: #000000;
+  color: #E0E0E0;
+  font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
+  background-image: 
+    radial-gradient(circle at center, transparent 0%, #000 100%),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E");
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* Global high-contrast focus states for WCAG 2.4.7 (F-10) */
+*:focus-visible {
+  outline: 2px solid #3B82F6 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3) !important;
 }
+
+
+/* ── Typography Scale ─────────────────────────────────── */
+@layer base {
+  h1, .display-text { @apply text-[48px] leading-none; }
+  h2, .title-text { @apply text-[28px] leading-tight; }
+  h3, .headline-text { @apply text-[18px] leading-snug; }
+  p, .body-text { @apply text-[14px] leading-normal; }
+  .label-text { @apply text-[12px] leading-none; }
+  .caption-text { @apply text-[10px] leading-none; }
+}
+
+/* ── Scrollbar ────────────────────────────────────────── */
 
 * {
-  box-sizing: border-box;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
 }
 
-#root {
-  width: 100%;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 1rem;
+::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
+
+/* ── Custom Utilities ─────────────────────────────────── */
+
+@layer utilities {
+  .auth-card {
+    background: #000000;
+    border: 1px solid #333333;
+    border-radius: 0.5rem;
+  }
+
+  /* Keep legacy utility class names but strip their color */
+  .gradient-red, .gradient-green, .gradient-blue, .text-gradient {
+    background: none;
+    color: #FFFFFF;
+    -webkit-text-fill-color: #FFFFFF;
+  }
+
+  .border-glow-red, .border-glow-green {
+    box-shadow: none;
+    border: 1px solid #FFFFFF;
+  }
+
+  /* New Lurien Utilities */
+  .inverted-chip {
+    background-color: #FFFFFF;
+    color: #000000;
+    font-weight: bold;
+    border-radius: 0.375rem;
+    text-transform: uppercase;
+  }
+  
+  .accent-node {
+    background-color: #D4B89E;
+    box-shadow: 0 0 10px rgba(212, 184, 158, 0.4);
+  }
+
+  .structural-text {
+    font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+    font-size: 100px;
+    font-weight: 200;
+    line-height: 0.8;
+    color: rgba(255, 255, 255, 0.05);
+    user-select: none;
+    pointer-events: none;
+    letter-spacing: -2px;
+  }
+}
+
+/* ── Animations ───────────────────────────────────────── */
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.scanline::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 10vh;
+  background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.02) 50%, rgba(255,255,255,0));
+  animation: scanline 16s linear 1;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+@keyframes blocked-shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+  20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+.animate-blocked-shake {
+  animation: blocked-shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
 }
