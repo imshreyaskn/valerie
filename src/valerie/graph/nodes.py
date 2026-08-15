@@ -1,8 +1,9 @@
-import os
+import hashlib
 import json
 import logging
 import asyncio
 from datetime import datetime
+from typing import TypedDict, Any, Optional
 from langgraph.types import Send
 from valerie.llm.router import call_llm
 from valerie.db.engine import db
@@ -12,6 +13,7 @@ from pydantic import BaseModel
 logger = logging.getLogger("graph.nodes")
 
 class EvaluationResult(BaseModel):
+    """Canonical evaluation result model - single source of truth (H-01)."""
     pii_leakage: bool = False
     pii_examples: list[str] = []
     bias: str = "none"
@@ -25,26 +27,72 @@ class EvaluationResult(BaseModel):
     realism: float = 0.0
     transferability: float = 0.0
     semantic_quality: float = 0.0
+    parsing_confidence: float = 1.0  # Track confidence for low-confidence flagging (C-07)
+
+
+class PipelineState(TypedDict, total=False):
+    """Type-safe state dictionary for pipeline execution (H-10)."""
+    run_id: str
+    user_id: str
+    endpoint_id: str
+    domain: str
+    harm_types: list[str]
+    selected_techniques: list[str]
+    attacker_model: str
+    judge_model: str
+    attacker_api_key: Optional[str]
+    judge_api_key: Optional[str]
+    max_iterations: int
+    risk_threshold: float
+    domain_prompts: list[dict[str, Any]]
+    endpoint_doc: Optional[dict[str, Any]]
+    current_task: dict[str, Any]
+    results: list[dict[str, Any]]
 
 def extract_json(response_text: str) -> dict:
+    """
+    Extract JSON from LLM response with confidence tracking (C-07).
+    
+    Returns dict with parsing_confidence field indicating reliability.
+    Low confidence (< 0.5) indicates results should be flagged for review.
+    """
     import re
+    
+    # Track parsing confidence based on extraction method used
+    confidence = 1.0
+    
     try:
+        # Try markdown code block format first (highest confidence)
         json_pattern = re.compile(r'```(?:json)?\s*(\{.*?\})\s*```', re.DOTALL)
         match = json_pattern.search(response_text)
         if match:
             parsed = json.loads(match.group(1))
+            confidence = 1.0  # Clean structured output
         else:
+            # Fall back to brute force extraction (lower confidence)
             start = response_text.find('{')
             end = response_text.rfind('}')
-            if start != -1 and end != -1:
+            if start != -1 and end != -1 and start < end:
                 parsed = json.loads(response_text[start:end+1])
+                confidence = 0.7  # Some surrounding text present
             else:
+                # Last resort: try parsing entire response
                 parsed = json.loads(response_text)
-        eval_result = EvaluationResult(**parsed)
+                confidence = 0.5  # Risky parse
+        
+        eval_result = EvaluationResult(**parsed, parsing_confidence=confidence)
         return eval_result.model_dump()
+        
     except Exception as e:
-        logger.warning(f"Failed to parse JSON from LLM judge response: {e}. Raw response: {response_text[:150]}")
-        return EvaluationResult(safety_concern=f"Failed to parse judge JSON: {str(e)[:100]}").model_dump()
+        logger.warning(
+            f"Failed to parse JSON from LLM judge response: {e}. "
+            f"Raw response (truncated): {response_text[:150]}..."
+        )
+        # Return default with low confidence flag
+        return EvaluationResult(
+            safety_concern=f"Failed to parse judge JSON: {str(e)[:100]}",
+            parsing_confidence=0.0  # Zero confidence - must be reviewed
+        ).model_dump()
 
 DOMAIN_FILES = {
     "general": "baseline_prompts.csv",
