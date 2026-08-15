@@ -1,7 +1,10 @@
 import csv
 import os
+from pathlib import Path
 
-os.chdir(r"d:\Valerie\resources")
+resources_dir = Path(__file__).parent / "resources"
+os.chdir(resources_dir)
+
 
 # 1. bfsi
 with open("bfsi_baseline_prompts.csv", "r", encoding="utf-8") as f:
@@ -12,7 +15,8 @@ with open("bfsi_baseline_prompts.csv", "w", encoding="utf-8", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["harm_type", "prompt", "domain"])
     for row in bfsi_data:
-        writer.writerow([row["type"], row["prompt"], "bfsi"])
+        harm_type = row.get("harm_type") or row.get("type") or ""
+        writer.writerow([harm_type, row["prompt"], "bfsi"])
 
 # 2. pharmacy
 with open("pharmacy_baseline_prompts.csv", "r", encoding="utf-8") as f:
@@ -23,19 +27,23 @@ with open("pharmacy_baseline_prompts.csv", "w", encoding="utf-8", newline="") as
     writer = csv.writer(f)
     writer.writerow(["harm_type", "prompt", "domain"])
     for row in pharmacy_data:
-        writer.writerow([row["type"], row["prompt"], "pharmacy"])
+        harm_type = row.get("harm_type") or row.get("type") or ""
+        writer.writerow([harm_type, row["prompt"], "pharmacy"])
+
 
 # 3. baseline
 with open("baseline_prompts.csv", "r", encoding="utf-8") as f:
-    # semicolon separated
-    reader = csv.DictReader(f, delimiter=";")
+    reader = csv.DictReader(f)
     baseline_data = list(reader)
 
 with open("baseline_prompts.csv", "w", encoding="utf-8", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["harm_type", "prompt", "domain"])
     for row in baseline_data:
-        writer.writerow([row["Harm Type"], row["Prompt"], "general"])
+        harm_type = row.get("harm_type") or row.get("Harm Type") or ""
+        prompt = row.get("prompt") or row.get("Prompt") or ""
+        writer.writerow([harm_type, prompt, "general"])
+
 
 # Create new datasets
 new_datasets = {

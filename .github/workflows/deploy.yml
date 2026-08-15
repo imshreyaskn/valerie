@@ -16,12 +16,42 @@ env:
   IMAGE:        us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/valerie/app
 
 jobs:
+  test:
+    name: Run Automated Tests & Static Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ./cli
+          pip install pytest pytest-asyncio mypy
+
+      - name: Run Mypy Strict Type Check
+        run: |
+          python -m mypy src/valerie/api src/valerie/core src/valerie/db src/valerie/graph src/valerie/llm src/valerie/worker --ignore-missing-imports
+          python -m mypy cli/valerie_cli --ignore-missing-imports
+
+      - name: Run Pytest Test Suite
+        run: |
+          PYTHONPATH=src python -m pytest tests/ -v
+
   build-push-deploy:
     name: Build, Push & Deploy
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write   # for Workload Identity Federation
+
 
     steps:
       - name: Checkout
@@ -61,14 +91,8 @@ jobs:
             --project=${{ env.PROJECT_ID }} \
             --quiet
 
-      - name: Run Alembic migrations against Supabase
-        run: |
-          pip install -r requirements.txt
-          mkdir -p alembic/versions
-          PYTHONPATH=src DATABASE_URL="${{ secrets.SUPABASE_DB_URL }}" \
-            python -m alembic upgrade head
-
       - name: Print deployed URL
+
         run: |
           API_URL=$(gcloud run services describe valerie-api \
             --region=${{ env.REGION }} \

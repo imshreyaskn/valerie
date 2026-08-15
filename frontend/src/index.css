@@ -1,149 +1,189 @@
 @import "tailwindcss";
 
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN TOKENS — VALERIE OS
+   Single source of truth. Old Money Palette & Research Workstation.
+   ═══════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Typefaces ──────────────────────────────────────── */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* ── Old Money Ground & Neutrals ────────────────────── */
+  --color-parchment:     #F6F2EE;   /* main background      */
+  --color-ivory:         #FFFFFF;   /* cards, panels        */
+  --color-linen:         #EDE6DF;   /* sunken, inputs, code */
+  --color-hairline:      #D8D0C7;   /* subtle dividers      */
+  --color-slate:         #242934;   /* primary text/action  */
+  --color-steel:         #6E7280;   /* secondary text       */
+  --color-taupe:         #A8A29D;   /* tertiary / disabled  */
+  --color-cream:         #E5DDD5;   /* warm fills           */
+  --color-beige:         #E6DAD0;   /* old money beige      */
+  --color-brown:         #433022;   /* old money brown      */
+
+  /* ── Old Money Status Indicators ────────────────────── */
+  --color-maroon:        #6E1818;   /* failed, breach, critical */
+  --color-maroon-muted:  #F5EAE9;
+  --color-olive:         #415438;   /* active, live, success    */
+  --color-olive-muted:   #EBF0E7;
+  --color-camel:         #B67C4B;   /* warning, medium risk     */
+  --color-camel-muted:   #FAF2EA;
+  --color-powder:        #789CB7;   /* info, querying, stream   */
+  --color-powder-muted:  #EBF2F7;
+
+  /* ── Semantic Aliases (Mapped to Old Money) ─────────── */
+  --color-danger:        var(--color-maroon);
+  --color-danger-muted:  var(--color-maroon-muted);
+  --color-success:       var(--color-olive);
+  --color-success-muted: var(--color-olive-muted);
+  --color-warning:       var(--color-camel);
+  --color-warning-muted: var(--color-camel-muted);
+  --color-info:          var(--color-powder);
+  --color-info-muted:    var(--color-powder-muted);
+
+  /* ── Border Radius ───────────────────────────────────── */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+}
+
+/* ── Motion tokens ────────────────────────────────────────────── */
 :root {
-  font-family: 'Aeonik', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  line-height: 1.2;
-  font-weight: 400;
+  --rail-collapsed: 64px;
+  --rail-expanded: 224px;
+  --inspector-min: 360px;
+  --inspector-max: 480px;
 
-  /* Mountain Slate Color Palette */
-  --color-slate: #2B3243;
-  --color-steel: #727481;
-  --color-taupe: #AEA8A8;
-  --color-warm-grey: #E2DAD6;
-  --color-off-white: #F6EFEF;
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast:    150ms;
+  --dur-base:    250ms;
+  --dur-slow:    400ms;
 
-  --bg-color: var(--color-off-white);
-  --text-primary: var(--color-slate);
-  --text-secondary: var(--color-steel);
-  --border-color: var(--color-slate);
-  
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  --text-primary:    var(--color-slate);
+  --text-secondary:  var(--color-steel);
+  --border-color:    var(--color-hairline);
+  --bg-color:        var(--color-parchment);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BASE
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
   margin: 0;
-  display: flex;
-  justify-content: center;
-  min-width: 320px;
   min-height: 100vh;
-  background-color: var(--bg-color);
-  color: var(--text-primary);
+  background-color: var(--color-parchment);
+  color: var(--color-slate);
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 
-.dashboard-bg {
-  background-color: #000000;
-  color: #E0E0E0;
-  font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
-  background-image: 
-    radial-gradient(circle at center, transparent 0%, #000 100%),
-    url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.15'/%3E%3C/svg%3E");
-}
-
-/* Global high-contrast focus states for WCAG 2.4.7 (F-10) */
 *:focus-visible {
-  outline: 2px solid #3B82F6 !important;
-  outline-offset: 2px !important;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3) !important;
+  outline: 2px solid var(--color-slate);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
-
-
-/* ── Typography Scale ─────────────────────────────────── */
-@layer base {
-  h1, .display-text { @apply text-[48px] leading-none; }
-  h2, .title-text { @apply text-[28px] leading-tight; }
-  h3, .headline-text { @apply text-[18px] leading-snug; }
-  p, .body-text { @apply text-[14px] leading-normal; }
-  .label-text { @apply text-[12px] leading-none; }
-  .caption-text { @apply text-[10px] leading-none; }
-}
-
-/* ── Scrollbar ────────────────────────────────────────── */
 
 * {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hairline) transparent;
 }
+::-webkit-scrollbar              { width: 5px; height: 5px; }
+::-webkit-scrollbar-track        { background: transparent; }
+::-webkit-scrollbar-thumb        { background: var(--color-hairline); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover  { background: var(--color-taupe); }
 
-::-webkit-scrollbar {
-  display: none; /* Chrome, Safari and Opera */
-}
-
-/* ── Custom Utilities ─────────────────────────────────── */
-
-@layer utilities {
-  .auth-card {
-    background: #000000;
-    border: 1px solid #333333;
-    border-radius: 0.5rem;
-  }
-
-  /* Keep legacy utility class names but strip their color */
-  .gradient-red, .gradient-green, .gradient-blue, .text-gradient {
-    background: none;
-    color: #FFFFFF;
-    -webkit-text-fill-color: #FFFFFF;
-  }
-
-  .border-glow-red, .border-glow-green {
-    box-shadow: none;
-    border: 1px solid #FFFFFF;
-  }
-
-  /* New Lurien Utilities */
-  .inverted-chip {
-    background-color: #FFFFFF;
-    color: #000000;
-    font-weight: bold;
-    border-radius: 0.375rem;
-    text-transform: uppercase;
-  }
-  
-  .accent-node {
-    background-color: #D4B89E;
-    box-shadow: 0 0 10px rgba(212, 184, 158, 0.4);
-  }
-
-  .structural-text {
-    font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
-    font-size: 100px;
-    font-weight: 200;
-    line-height: 0.8;
-    color: rgba(255, 255, 255, 0.05);
-    user-select: none;
-    pointer-events: none;
-    letter-spacing: -2px;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration:        0.01ms !important;
+    animation-iteration-count: 1      !important;
+    transition-duration:       0.01ms !important;
+    scroll-behavior:           auto   !important;
   }
 }
 
-/* ── Animations ───────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   KEYFRAMES
+   ═══════════════════════════════════════════════════════════════ */
 
-@keyframes scanline {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0);   }
 }
 
-.scanline::after {
-  content: "";
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 10vh;
-  background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.02) 50%, rgba(255,255,255,0));
-  animation: scanline 16s linear 1;
-  pointer-events: none;
-  z-index: 9999;
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1;   }
+  50%       { opacity: 0.3; }
 }
 
 @keyframes blocked-shake {
-  0%, 100% { transform: translateX(0); }
+  0%, 100%                { transform: translateX(0);  }
   10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
-  20%, 40%, 60%, 80% { transform: translateX(2px); }
+  20%, 40%, 60%, 80%      { transform: translateX(2px);  }
 }
 
-.animate-blocked-shake {
-  animation: blocked-shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
+@keyframes sweep {
+  0%   { background-position: -100% 0; }
+  100% { background-position: 200% 0; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   CUSTOM UTILITIES & SWISS TYPOGRAPHY
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  .animate-fade-in       { animation: fade-in  var(--dur-base) var(--ease-out) both; }
+  .animate-slide-up      { animation: slide-up var(--dur-slow) var(--ease-out) both; }
+  .animate-pulse-dot     { animation: pulse-dot 2s ease-in-out infinite; }
+  .animate-blocked-shake { animation: blocked-shake 0.3s cubic-bezier(.36,.07,.19,.97) both; }
+  .animate-sweep {
+    background: linear-gradient(90deg, transparent 0%, rgba(36,41,52,0.06) 50%, transparent 100%);
+    background-size: 200% 100%;
+    animation: sweep 1.5s var(--ease-in-out) infinite;
+  }
+
+  .hairline-bottom { border-bottom: 1px solid var(--color-hairline); }
+  .hairline-top    { border-top:    1px solid var(--color-hairline); }
+  .hairline-right  { border-right:  1px solid var(--color-hairline); }
+  .hairline-left   { border-left:   1px solid var(--color-hairline); }
+
+  .evidence-panel-dark {
+    background-color: var(--color-slate);
+    color: var(--color-parchment);
+    border-radius: var(--radius-sm);
+  }
+  .evidence-panel-dark code,
+  .evidence-panel-dark pre {
+    color: var(--color-linen);
+  }
+}
+
+.react-flow__controls-button {
+  background: #FFFFFF !important;
+  border: 1px solid var(--color-hairline) !important;
+  color: var(--color-slate) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+.react-flow__controls-button:hover {
+  background: var(--color-linen) !important;
+}
+.react-flow__attribution { display: none !important; }
+.react-flow__edge-text   { fill: var(--color-steel) !important; }
+.react-flow__edge-textbg { fill: var(--color-parchment) !important; }

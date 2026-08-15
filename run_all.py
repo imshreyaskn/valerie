@@ -6,9 +6,9 @@ env = os.environ.copy()
 env["PYTHONPATH"] = "src"
 
 print("Starting API on port 8080...")
-api = subprocess.Popen(["uvicorn", "valerie.api.main:app", "--port", "8080"], env=env)
+api = subprocess.Popen(["python", "-m", "uvicorn", "valerie.api.main:app", "--port", "8080"], env=env)
 print("Starting Worker on port 8081...")
-worker = subprocess.Popen(["uvicorn", "valerie.worker.executor:app", "--port", "8081"], env=env)
+worker = subprocess.Popen(["python", "-m", "uvicorn", "valerie.worker.executor:app", "--port", "8081"], env=env)
 
 print("Waiting for servers to start...")
 time.sleep(10)

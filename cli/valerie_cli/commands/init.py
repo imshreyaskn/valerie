@@ -6,24 +6,37 @@ from .. import config
 
 console = Console()
 
-def app():
-    """Interactive setup wizard - configure backend URL and API key."""
-    console.print()
-    console.print("Valerie CLI Setup Wizard", justify="center")
-    console.print()
+from typing import Optional
 
+def app(
+    url: Optional[str] = typer.Option(None, "--url", "-u", help="Backend URL (non-interactive)"),
+    key: Optional[str] = typer.Option(None, "--key", "-k", help="API Key (non-interactive)"),
+):
+    """Setup wizard - configure backend URL and API key."""
     current = config.load()
 
-    backend_url = Prompt.ask(
-        "Backend URL (e.g. https://valerie-api-xxxx-uc.a.run.app)",
-        default=current.get("backend_url") or ""
-    ).rstrip("/")
+    # Non-interactive mode when flags are provided (C-08)
+    if url is not None or key is not None:
+        backend_url = (url or current.get("backend_url") or "").rstrip("/")
+        api_key = key or current.get("api_key") or ""
+        if not backend_url or not api_key:
+            console.print("[red]Both --url and --key must be provided for non-interactive init.[/]")
+            raise typer.Exit(1)
+    else:
+        console.print()
+        console.print("Valerie CLI Setup Wizard", justify="center")
+        console.print()
 
-    api_key = Prompt.ask(
-        "API Key",
-        default=current.get("api_key") or "",
-        password=True
-    )
+        backend_url = Prompt.ask(
+            "Backend URL (e.g. https://valerie-api-xxxx-uc.a.run.app)",
+            default=current.get("backend_url") or ""
+        ).rstrip("/")
+
+        api_key = Prompt.ask(
+            "API Key",
+            default=current.get("api_key") or "",
+            password=True
+        )
 
     console.print()
     console.print("Verifying connection...", end=" ")
@@ -34,7 +47,7 @@ def app():
             domains = [d["id"] for d in r.json().get("domains", [])]
             console.print("Connected")
             console.print(f"  Available domains: {', '.join(domains)}")
-        elif r.status_code == 403:
+        elif r.status_code == 401 or r.status_code == 403:
             console.print("Invalid API key")
             raise typer.Exit(1)
         else:
@@ -54,3 +67,4 @@ def app():
     console.print("Next steps:")
     console.print("  valerie validate --model mistral/mistral-small-latest --key $MISTRAL_KEY")
     console.print("  valerie run --domain bfsi --target-model mistral/mistral-small-latest --target-key $MISTRAL_KEY")
+

@@ -1,7 +1,6 @@
 # Environment
 .env
-.env.example
-!.env.example
+
 
 # Python
 __pycache__/
@@ -52,3 +51,16 @@ infra/.terraform/
 infra/.terraform.lock.hcl
 infra/terraform.tfstate
 infra/terraform.tfstate.backup
+
+# Temp text dumps & scratch files
+*.txt
+!requirements.txt
+*.log
+combine*.py
+strip.py
+temp_index_orig.css
+results.json
+seed_campaigns.py
+fix_seed_user.py
+.deepeval/
+.benchmarks/

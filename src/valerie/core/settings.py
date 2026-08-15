@@ -36,14 +36,14 @@ class AWSConfig(BaseSettings):
         description="AWS region for Bedrock API calls"
     )
     
-    access_key_id: str = Field(
-        ...,  # ... means REQUIRED, no default
+    access_key_id: str | None = Field(
+        default=None,
         description="AWS Access Key ID",
         alias="AWS_ACCESS_KEY_ID"  # Maps to env var name
     )
     
-    secret_access_key: str = Field(
-        ...,
+    secret_access_key: str | None = Field(
+        default=None,
         description="AWS Secret Access Key",
         alias="AWS_SECRET_ACCESS_KEY"
     )
@@ -92,8 +92,8 @@ class MistralConfig(BaseSettings):
     """
     Mistral AI Configuration
     """
-    api_key: str = Field(
-        ...,
+    api_key: str | None = Field(
+        default=None,
         description="Mistral API Key",
         alias="MISTRAL_API_KEY"
     )
@@ -114,83 +114,41 @@ class MistralConfig(BaseSettings):
 
 class DatabaseConfig(BaseSettings):
     """
-    PostgreSQL Configuration
-    
-    Why split from main config?
-    - Database is a separate infrastructure concern
-    - Makes testing easier (can mock just DB config)
-    - Clear ownership of connection parameters
+    MongoDB Configuration
     """
-    
-    host: str = Field(
-        default="localhost",
-        description="PostgreSQL host",
-        alias="POSTGRES_HOST"
-    )
-    
-    port: int = Field(
-        default=5432,
-        gt=0,
-        lt=65536,
-        description="PostgreSQL port",
-        alias="POSTGRES_PORT"
-    )
-    
-    database: str = Field(
-        ...,
-        description="Database name",
-        alias="POSTGRES_DB"
-    )
-    
-    user: str = Field(
-        ...,
-        description="Database user",
-        alias="POSTGRES_USER"
-    )
-    
-    password: str = Field(
-        ...,
-        description="Database password",
-        alias="POSTGRES_PASSWORD"
-    )
-    
-    pool_size: int = Field(
-        default=5,
-        gt=0,
-        description="Connection pool size",
-        alias="DATABASE_POOL_SIZE"
-    )
-    
-    max_overflow: int = Field(
-        default=10,
-        gt=0,
-        description="Max connections beyond pool_size",
-        alias="DATABASE_MAX_OVERFLOW"
-    )
+    uri: str | None = Field(default=None, alias="MONGO_URI")
+    host: str = Field(default="localhost", alias="MONGO_HOST")
+    port: int = Field(default=27017, alias="MONGO_PORT")
+    username: str | None = Field(default="valerie", alias="MONGO_USER")
+    password: str | None = Field(default="localdev", alias="MONGO_PASSWORD")
+    database: str = Field(default="valerie_db", alias="MONGO_DB")
     
     @property
     def connection_url(self) -> str:
-        """
-        Construct SQLAlchemy connection URL
-        
-        Why a property?
-        - Derived value, not stored config
-        - Auto-updates if components change
-        - Single source of truth for URL format
-        """
-        return (
-            f"postgresql://{self.user}:{self.password}"
-            f"@{self.host}:{self.port}/{self.database}"
-        )
+        if self.uri:
+            return self.uri
+        if self.username and self.password:
+            return f"mongodb://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}?authSource=admin"
+        return f"mongodb://{self.host}:{self.port}/{self.database}"
+
+
+class RedisConfig(BaseSettings):
+    """
+    Redis Configuration for Event Bus (Streams) and Pub/Sub
+    """
+    uri: str | None = Field(default=None, alias="REDIS_URI")
+    host: str = Field(default="localhost", alias="REDIS_HOST")
+    port: int = Field(default=6379, alias="REDIS_PORT")
+    password: str | None = Field(default=None, alias="REDIS_PASSWORD")
+    db: int = Field(default=0, alias="REDIS_DB")
     
     @property
-    def async_connection_url(self) -> str:
-        """Async driver URL for asyncpg"""
-        return (
-            f"postgresql+asyncpg://{self.user}:{self.password}"
-            f"@{self.host}:{self.port}/{self.database}"
-        )
-
+    def url(self) -> str:
+        if self.uri:
+            return self.uri
+        if self.password:
+            return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
+        return f"redis://{self.host}:{self.port}/{self.db}"
 
 class Settings(BaseSettings):
     """
@@ -248,6 +206,30 @@ class Settings(BaseSettings):
         lt=65536,
         description="API server port"
     )
+
+    master_key: str = Field(
+        default="valerie_dev_master_key_change_in_prod",
+        alias="VALERIE_MASTER_KEY",
+        description="Master API key for administrative access"
+    )
+
+    jwt_secret_key: str | None = Field(
+        default=None,
+        alias="JWT_SECRET_KEY",
+        description="Secret key for signing JWT tokens"
+    )
+
+    worker_secret: str = Field(
+        default="valerie_dev_worker_secret",
+        alias="WORKER_SECRET",
+        description="Shared secret for API to Worker communication"
+    )
+
+    allowed_origins: list[str] = Field(
+        default=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"],
+        alias="ALLOWED_ORIGINS",
+        description="Allowed CORS origins"
+    )
     
     # Timeout Configuration (Critical for LLM calls)
     llm_timeout_seconds: int = Field(
@@ -267,6 +249,7 @@ class Settings(BaseSettings):
     aws: AWSConfig = Field(default_factory=AWSConfig)
     mistral: MistralConfig = Field(default_factory=MistralConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    redis: RedisConfig = Field(default_factory=RedisConfig)
     
     @field_validator('environment')
     @classmethod
@@ -290,7 +273,7 @@ class Settings(BaseSettings):
 # This is loaded ONCE at module import
 try:
     settings = Settings()
-    print(f"✓ Configuration loaded successfully for environment: {settings.environment}")
+    print(f"[OK] Configuration loaded successfully for environment: {settings.environment}")
 except ValidationError as e:
     print("=" * 80)
     print("FATAL CONFIGURATION ERROR")

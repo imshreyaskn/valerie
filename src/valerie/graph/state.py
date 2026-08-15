@@ -5,14 +5,14 @@ class AttackTask(TypedDict):
     task_id: str
     original_prompt: str
     harm_type: str
-    technique_id: str
+    attack_family: str
     domain: str
 
 class AttackResult(TypedDict):
     task_id: str
     original_prompt: str
     harm_type: str
-    technique_id: str
+    attack_family: str
     adversarial_prompt: str
     target_response: str
     iterations_used: int
@@ -24,16 +24,20 @@ class AttackResult(TypedDict):
     toxicity: bool
     toxicity_severity: str
     safety_concern: str
+    novelty: float
+    diversity: float
+    realism: float
+    transferability: float
+    semantic_quality: float
     overall_risk_score: float
 
 class PipelineState(TypedDict):
     run_id: str
+    user_id: str
+    endpoint_id: str
     domain: str
     harm_types: list[str]
-    selected_techniques: list[str]
-    target_model: str
-    target_api_key: str | None
-    target_api_base: str | None
+    selected_techniques: list[str]  # now maps to attack_families
     judge_model: str
     judge_api_key: str | None
     attacker_model: str

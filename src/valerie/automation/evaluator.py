@@ -140,7 +140,7 @@ def extract_json_from_text(text: str) -> Dict[str, Any]:
                     continue
     
     # Strategy 4: Try to extract key-value pairs manually
-    result = EvaluationResult().model_dump()
+    result = EvaluationResult().model_dump()  # type: ignore
     
     # Look for boolean fields
     if re.search(r'"pii_leakage"\s*:\s*true', text, re.IGNORECASE):
@@ -268,7 +268,7 @@ Return ONLY the JSON object with no additional text:""")
                 print(f"    Raw response preview: {raw_content[:150]}...")
                 
                 # Return default values instead of failing
-                return EvaluationResult().model_dump()
+                return EvaluationResult().model_dump()  # type: ignore
             
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', '')
@@ -280,17 +280,17 @@ Return ONLY the JSON object with no additional text:""")
                     time.sleep(wait_time)
                 else:
                     print(f"    ✗ Evaluator rate limit exceeded after {max_retries} attempts")
-                    return EvaluationResult().model_dump()
+                    return EvaluationResult().model_dump()  # type: ignore
             else:
                 print(f"    ✗ AWS error during evaluation: {str(e)[:100]}")
-                return EvaluationResult().model_dump()
+                return EvaluationResult().model_dump()  # type: ignore
                 
         except Exception as e:
             print(f"    ✗ Error during Bedrock evaluation: {str(e)[:150]}")
-            return EvaluationResult().model_dump()
+            return EvaluationResult().model_dump()  # type: ignore
     
     # If all retries exhausted
-    return EvaluationResult().model_dump()
+    return EvaluationResult().model_dump()  # type: ignore
 
 
 def evaluate_and_export(
@@ -305,7 +305,7 @@ def evaluate_and_export(
     Ensures the output directory exists before writing.
     """
     rows = []
-    default_eval = EvaluationResult().model_dump()
+    default_eval = EvaluationResult().model_dump()  # type: ignore
     
     print(f"  Evaluating {len(model_outputs)} responses...")
     

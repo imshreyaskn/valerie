@@ -5,7 +5,7 @@ import asyncio
 async def test():
     print("Fetching domains...")
     async with httpx.AsyncClient() as client:
-        res = await client.get("http://localhost:8080/domains/", headers={"X-API-Key": "32-byte-base64-fernet-key"})
+        res = await client.get("http://127.0.0.1:8080/domains/", headers={"X-API-Key": "32-byte-base64-fernet-key"})
         domains = res.json()["domains"]
         print("Domains:", [d['id'] for d in domains])
         
@@ -30,13 +30,13 @@ async def test():
         }
         
         print("Starting pipeline run...")
-        res = await client.post("http://localhost:8080/runs/", json=payload, headers={"X-API-Key": "32-byte-base64-fernet-key"}, timeout=30.0)
+        res = await client.post("http://127.0.0.1:8080/runs/", json=payload, headers={"X-API-Key": "32-byte-base64-fernet-key"}, timeout=30.0)
         run_id = res.json()["run_id"]
         print(f"Run ID: {run_id}")
         
         for i in range(15):
             await asyncio.sleep(5)
-            res = await client.get(f"http://localhost:8080/runs/{run_id}", headers={"X-API-Key": "32-byte-base64-fernet-key"})
+            res = await client.get(f"http://127.0.0.1:8080/runs/{run_id}", headers={"X-API-Key": "32-byte-base64-fernet-key"})
             status = res.json()["status"]
             print(f"Status: {status}")
             if status == "failed":
@@ -45,7 +45,7 @@ async def test():
             if status == "completed":
                 break
                 
-        res = await client.get(f"http://localhost:8080/runs/{run_id}/results", headers={"X-API-Key": "32-byte-base64-fernet-key"})
+        res = await client.get(f"http://127.0.0.1:8080/runs/{run_id}/results", headers={"X-API-Key": "32-byte-base64-fernet-key"})
         print("Results length:", len(res.json()["results"]))
         if res.json()["results"]:
             print("Sample result score:", res.json()["results"][0].get("overall_risk_score"))

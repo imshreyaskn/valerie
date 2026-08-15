@@ -1,6 +1,13 @@
 """
 Generator Module - Simplified to work with new data_loader
 """
+"""
+[LEGACY / EXPERIMENTAL CODE]
+Note: This is legacy research code using AWS Bedrock directly.
+For active production code, use src/valerie/graph/nodes.py and src/valerie/llm/llm_client.py.
+"""
+import json
+import re
 from typing import Optional
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_aws.chat_models import ChatBedrock

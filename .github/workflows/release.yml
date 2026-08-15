@@ -75,6 +75,12 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
+      - name: Generate SHA256 Checksums
+        run: |
+          cd dist
+          sha256sum valerie-linux-amd64 valerie-windows-amd64.exe valerie-macos-amd64 > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -83,11 +89,21 @@ jobs:
           body: |
             ## Valerie CLI ${{ steps.version.outputs.VERSION }}
 
-            ### Installation
+            ### Verification & Installation
 
-            **Linux / macOS:**
+            **1. Verify Checksum:**
             ```bash
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/valerie-linux-amd64 -o valerie
+            # Download binary and SHA256SUMS
+            curl -L -O https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/valerie-linux-amd64
+            curl -L -O https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/SHA256SUMS
+            
+            # Verify SHA256 checksum integrity
+            sha256sum --ignore-missing -c SHA256SUMS
+            ```
+
+            **2. Install (Linux / macOS):**
+            ```bash
+            mv valerie-linux-amd64 valerie
             chmod +x valerie
             sudo mv valerie /usr/local/bin/
             valerie init
@@ -96,7 +112,6 @@ jobs:
             **Windows (PowerShell):**
             ```powershell
             Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.VERSION }}/valerie-windows-amd64.exe" -OutFile valerie.exe
-            # Add to PATH or run from current directory
             .\valerie.exe init
             ```
 
@@ -110,5 +125,7 @@ jobs:
             dist/valerie-linux-amd64
             dist/valerie-windows-amd64.exe
             dist/valerie-macos-amd64
+            dist/SHA256SUMS
           draft: false
           prerelease: false
+

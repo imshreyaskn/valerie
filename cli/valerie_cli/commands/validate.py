@@ -1,19 +1,34 @@
+import os
 import typer
+from typing import Optional
 from rich.console import Console
-from ..client import VaelerieClient
+from ..client import ValerieClient
 
 console = Console()
 
 def app(
     model: str = typer.Option(..., "--model", "-m", help="LiteLLM model string, e.g. mistral/mistral-small-latest"),
-    key: str   = typer.Option(..., "--key", "-k", help="API key for the model provider"),
-    base: str  = typer.Option(None, "--base", help="Custom API base URL (for self-hosted models)"),
+    key: Optional[str] = typer.Option(None, "--key", "-k", help="API key for the model provider (defaults to env var)"),
+    base: Optional[str] = typer.Option(None, "--base", help="Custom API base URL (for self-hosted models)"),
 ):
     """Test if a target LLM endpoint is reachable and returns a response."""
+    # Environment variable resolution for API key (C-04)
+    resolved_key = (
+        key
+        or os.getenv("MISTRAL_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("ANTHROPIC_API_KEY")
+        or os.getenv("VALERIE_TARGET_KEY")
+        or ""
+    )
+    if not resolved_key:
+        console.print("[red]Target API key is required.[/] Pass --key or set MISTRAL_API_KEY environment variable.")
+        raise typer.Exit(1)
+
     console.print(f"Validating endpoint {model}...")
 
-    client = VaelerieClient()
-    payload = {"model": model, "api_key": key}
+    client = ValerieClient()
+    payload = {"model": model, "api_key": resolved_key}
     if base:
         payload["api_base"] = base
 
@@ -30,3 +45,4 @@ def app(
         console.print("Validation failed")
         console.print(f"  Error: {data.get('error', 'Unknown error')}")
         raise typer.Exit(1)
+

@@ -1,3 +1,4 @@
+import os
 import typer
 import time
 from typing import List, Optional
@@ -5,7 +6,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich import box
-from ..client import VaelerieClient
+from ..client import ValerieClient
 from .. import config
 
 console = Console()
@@ -19,8 +20,8 @@ def app(
         help="Attack techniques (default: all 15). e.g. indirect_prompting role_play"),
     target_model: str = typer.Option(..., "--target-model",
         help="LiteLLM model string for the model being tested"),
-    target_key: str = typer.Option(..., "--target-key",
-        help="API key for the target model provider"),
+    target_key: Optional[str] = typer.Option(None, "--target-key",
+        help="API key for target model provider (defaults to env var)"),
     target_base: Optional[str] = typer.Option(None, "--target-base",
         help="Custom API base URL for self-hosted target"),
     attacker_model: Optional[str] = typer.Option(None, "--attacker-model",
@@ -39,16 +40,35 @@ def app(
         help="Max parallel attack workers"),
     wait: bool = typer.Option(True, "--wait/--no-wait",
         help="Wait for completion and show results (default: True)"),
+    timeout: int = typer.Option(1800, "--timeout", "-T",
+        help="Maximum poll timeout in seconds before aborting (default: 1800)"),
 ):
     """Launch a red-team evaluation run against a target LLM."""
     cfg = config.load()
     defaults = cfg.get("defaults", {})
 
-    client = VaelerieClient()
+    client = ValerieClient()
+
+    # Environment variable resolution for target key (C-04)
+    resolved_target_key = (
+        target_key
+        or os.getenv("OPENROUTER_API_KEY")
+        or os.getenv("MISTRAL_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("ANTHROPIC_API_KEY")
+        or os.getenv("VALERIE_TARGET_KEY")
+        or ""
+    )
+    if not resolved_target_key:
+        console.print("[red]Target API key is required.[/] Pass --target-key or set MISTRAL_API_KEY environment variable.")
+        raise typer.Exit(1)
 
     # Fetch domain info to get default harm types if not specified
     if not harm_types:
         r = client.get("/domains/")
+        if not r:
+            console.print("[red]Failed to fetch domains from backend.[/]")
+            raise typer.Exit(1)
         domain_data = next((d for d in r.json().get("domains", []) if d["id"] == domain), None)
         if not domain_data:
             console.print(f"[red]Unknown domain: {domain}[/]")
@@ -58,23 +78,39 @@ def app(
     # Fetch default techniques if not specified
     if not techniques:
         r = client.get("/attacks/techniques")
+        if not r:
+            console.print("[red]Failed to fetch techniques from backend.[/]")
+            raise typer.Exit(1)
         techniques = [t["id"] for t in r.json().get("techniques", [])]
 
+
     resolved_attacker = attacker_model or defaults.get("attacker_model")
-    resolved_attacker_key = attacker_key or target_key  # fallback to target key
+    resolved_attacker_key = attacker_key or (os.getenv("GROQ_API_KEY") if resolved_attacker and "groq" in resolved_attacker else resolved_target_key)
     resolved_judge = judge_model or defaults.get("judge_model")
-    resolved_judge_key = judge_key or target_key
+    resolved_judge_key = judge_key or (os.getenv("GROQ_API_KEY") if resolved_judge and "groq" in resolved_judge else resolved_target_key)
+    
+    # Create temporary endpoint for this run
+    endpoint_payload = {
+        "name": target_model,
+        "provider": "litellm",
+        "api_key": resolved_target_key,
+        "base_url": target_base
+    }
+    ep_res = client.post("/endpoints/", json=endpoint_payload)
+    if not ep_res or "id" not in ep_res.json():
+        console.print("[red]Failed to register target endpoint with backend.[/]")
+        raise typer.Exit(1)
+    
+    endpoint_id = ep_res.json()["id"]
 
     payload = {
         "domain": domain,
         "harm_types": harm_types,
         "techniques": techniques,
-        "target_model": target_model,
-        "target_api_key": target_key,
-        "target_api_base": target_base,
+        "endpoint_id": endpoint_id,
+        "judge_model": resolved_judge,
         "attacker_model": resolved_attacker,
         "attacker_api_key": resolved_attacker_key,
-        "judge_model": resolved_judge,
         "judge_api_key": resolved_judge_key,
         "max_iterations": max_iterations or defaults.get("max_iterations", 3),
         "risk_threshold": threshold or defaults.get("risk_threshold", 0.7),
@@ -86,7 +122,7 @@ def app(
     console.print(f"Domain: {domain}")
     console.print(f"Harm types: {len(harm_types)} selected")
     console.print(f"Techniques: {len(techniques)} selected")
-    console.print(f"Target: {target_model}")
+    console.print(f"Target: {target_model} (Endpoint {endpoint_id})")
     console.print(f"Attacker: {resolved_attacker}")
     console.print(f"Judge: {resolved_judge}")
     console.print()
@@ -99,7 +135,7 @@ def app(
         console.print(f"Use 'valerie runs status {run_id}' to check progress")
         return
 
-    # Poll for completion
+    # Safe polling with timeout and error tracking (C-02)
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -108,13 +144,28 @@ def app(
     ) as progress:
         task = progress.add_task("Running pipeline...", total=None)
         start = time.time()
+        consecutive_errors = 0
+        max_consecutive_errors = 10
 
         while True:
+            elapsed = time.time() - start
+            if elapsed > timeout:
+                progress.stop()
+                console.print(f"\n[red]Run timeout reached ({timeout}s).[/] Run ID {run_id} is still executing on server.")
+                console.print(f"Use 'valerie runs status {run_id}' to inspect status later.")
+                raise typer.Exit(1)
+
             time.sleep(5)
             r = client.get(f"/runs/{run_id}", suppress_errors=True)
             if not r:
-                continue # Skip update on temporary network timeout
-                
+                consecutive_errors += 1
+                if consecutive_errors >= max_consecutive_errors:
+                    progress.stop()
+                    console.print(f"\n[red]Network polling failed after {max_consecutive_errors} consecutive attempts.[/]")
+                    raise typer.Exit(1)
+                continue
+            
+            consecutive_errors = 0
             run_data = r.json()
             status = run_data.get("status", "unknown")
             total = run_data.get("total_tasks", 0)
@@ -127,9 +178,10 @@ def app(
                 console.print(f"Run failed: {run_data.get('error_message', 'Unknown error')}")
                 raise typer.Exit(1)
 
-    elapsed = int(time.time() - start)
-    _print_summary(run_data, run_id, elapsed)
+    elapsed_time = int(time.time() - start)
+    _print_summary(run_data, run_id, elapsed_time)
     _print_top_results(client, run_id)
+
 
 def _print_summary(run_data: dict, run_id: str, elapsed: int):
     breakthroughs = run_data.get("successful_attacks", 0)
@@ -150,9 +202,12 @@ def _print_summary(run_data: dict, run_id: str, elapsed: int):
     table.add_row("Run ID", run_id)
     console.print(table)
 
-def _print_top_results(client: VaelerieClient, run_id: str):
+def _print_top_results(client: ValerieClient, run_id: str):
     r = client.get(f"/runs/{run_id}/results")
+    if not r:
+        return
     results = r.json().get("results", [])
+
     if not results:
         return
 

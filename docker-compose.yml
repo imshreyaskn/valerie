@@ -9,8 +9,10 @@ services:
     ports: 
       - "8080:8080"
     depends_on:
-      db:
-        condition: service_healthy
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
 
   worker:
     build: .
@@ -22,26 +24,29 @@ services:
     ports: 
       - "8081:8081"
     depends_on:
-      db:
-        condition: service_healthy
+      mongodb:
+        condition: service_started
+      redis:
+        condition: service_started
 
-  db:
-    image: postgres:16-alpine
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  mongodb:
+    image: mongo:6
     environment:
-      POSTGRES_DB: valerie_db
-      POSTGRES_USER: valerie
-      POSTGRES_PASSWORD: localdev
-    ports: 
-      - "5432:5432"
-    volumes: 
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U valerie -d valerie_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+      MONGO_INITDB_ROOT_USERNAME: valerie
+      MONGO_INITDB_ROOT_PASSWORD: localdev
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
 
 volumes:
-  pgdata:
+  redisdata:
+  mongodata:
 

@@ -13,10 +13,8 @@ google-cloud-tasks==2.16.3
 google-cloud-secret-manager==2.22.0
 
 # ── Database ─────────────────────────────────────────────────────────
-sqlmodel==0.0.38
-sqlalchemy[asyncio]==2.0.50
-asyncpg==0.31.0
-alembic==1.14.1
+motor==3.6.0
+redis[asyncio]==5.2.0
 
 # ── Auth ─────────────────────────────────────────────────────────────
 python-jose[cryptography]==3.3.0
@@ -24,7 +22,9 @@ passlib[bcrypt]==1.7.4
 cryptography==43.0.3
 
 # ── Config & Data ────────────────────────────────────────────────────
-pydantic>=2.10.0
-pydantic-settings>=2.6.1
+pydantic==2.10.6
+pydantic-settings==2.7.1
 python-dotenv==1.0.1
 pandas==2.2.3
+scikit-learn==1.5.2
+numpy==2.1.2

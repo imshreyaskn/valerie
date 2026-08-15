@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
-from ..client import VaelerieClient
+from ..client import ValerieClient
 
 console = Console()
 app = typer.Typer(help="List and inspect past runs", no_args_is_help=True)
@@ -14,8 +14,11 @@ app = typer.Typer(help="List and inspect past runs", no_args_is_help=True)
 @app.command("list")
 def list_runs(limit: int = typer.Option(20, "--limit", "-n", help="Number of runs to show")):
     """List past pipeline runs."""
-    client = VaelerieClient()
+    client = ValerieClient()
     r = client.get(f"/runs/?limit={limit}")
+    if not r:
+        console.print("Failed to fetch runs from backend.")
+        return
     runs = r.json().get("runs", [])
 
     if not runs:
@@ -52,9 +55,9 @@ def status(
     run_id: str = typer.Argument(help="Run ID"),
 ):
     """Show current status of a run."""
-    client = VaelerieClient()
+    client = ValerieClient()
     r = client.get(f"/runs/{run_id}")
-    if r.status_code == 404:
+    if not r or r.status_code == 404:
         console.print(f"Run not found: {run_id}")
         raise typer.Exit(1)
     run = r.json()
@@ -69,27 +72,33 @@ def status(
 @app.command("results")
 def results(
     run_id: str = typer.Argument(help="Run ID"),
+    limit: int = typer.Option(50, "--limit", "-n", help="Max results to display/export (default: 50)"),
+    offset: int = typer.Option(0, "--offset", help="Offset for results pagination"),
     export: Optional[Path] = typer.Option(None, "--export", "-e", help="Export results to JSON file"),
     show_prompts: bool = typer.Option(False, "--show-prompts", help="Print adversarial prompts"),
     min_score: float = typer.Option(0.0, "--min-score", help="Filter results by minimum risk score"),
 ):
     """Show detailed results for a completed run."""
-    client = VaelerieClient()
+    client = ValerieClient()
     r = client.get(f"/runs/{run_id}/results")
-    if r.status_code == 404:
+    if not r or r.status_code == 404:
         console.print(f"Run not found: {run_id}")
         raise typer.Exit(1)
 
     results_data = r.json().get("results", [])
+
     filtered = [x for x in results_data if x.get("overall_risk_score", 0) >= min_score]
     filtered_sorted = sorted(filtered, key=lambda x: x.get("overall_risk_score", 0), reverse=True)
+    
+    # Apply pagination (C-06)
+    paginated = filtered_sorted[offset:offset + limit]
 
     if export:
-        export.write_text(json.dumps(filtered_sorted, indent=2))
-        console.print(f"Exported {len(filtered_sorted)} results to {export}")
+        export.write_text(json.dumps(paginated, indent=2))
+        console.print(f"Exported {len(paginated)} results (total {len(filtered_sorted)}) to {export}")
         return
 
-    table = Table(title=f"Results: {run_id[:8]}...", box=box.ROUNDED)
+    table = Table(title=f"Results: {run_id[:8]}... (showing {len(paginated)} of {len(filtered_sorted)})", box=box.ROUNDED)
     table.add_column("Score", justify="right")
     table.add_column("Harm Type")
     table.add_column("Technique")
@@ -98,7 +107,7 @@ def results(
     table.add_column("PII", justify="center")
     table.add_column("Toxic", justify="center")
 
-    for res in filtered_sorted:
+    for res in paginated:
         score = res.get("overall_risk_score", 0)
         score_str = f"{score:.2f}"
         table.add_row(
@@ -114,7 +123,7 @@ def results(
     console.print(table)
 
     if show_prompts:
-        for res in filtered_sorted[:3]:
+        for res in paginated[:3]:
             console.print()
             console.print(Panel(
                 f"Adversarial Prompt:\n{res.get('adversarial_prompt', '')}\n\n"
@@ -122,3 +131,4 @@ def results(
                 f"Safety Concern:\n{res.get('safety_concern', '')}",
                 title=f"{res.get('harm_type')} / {res.get('technique_id')} — Score: {res.get('overall_risk_score', 0):.2f}",
             ))
+

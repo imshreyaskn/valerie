@@ -1,10 +1,24 @@
+import type {
+  Endpoint,
+  CreateEndpointPayload,
+  Run,
+  CreateRunPayload,
+  Finding,
+  WeaknessCluster,
+  KnowledgeSearchResult,
+  ApiKeyItem,
+  CreatedApiKey,
+  UserMe,
+  RunResultsResponse,
+} from '../types/domain';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
-async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
+async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('vl_jwt');
   const headers = {
     'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
@@ -14,48 +28,72 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    const errorText = await response.text();
+    throw new Error(errorText || `API Error: ${response.statusText}`);
   }
-  
+
   const contentLength = response.headers.get('content-length');
-  if (contentLength === '0') return null;
+  if (contentLength === '0') return null as T;
 
   return response.json();
 }
 
 export const api = {
-  getMe: () => fetchWithAuth('/users/me'),
-  deleteMe: () => fetchWithAuth('/users/me', { method: 'DELETE' }),
-  
-  listKeys: () => fetchWithAuth('/keys/'),
-  createKey: (label: string) => fetchWithAuth('/keys/', { method: 'POST', body: JSON.stringify({ label }) }),
-  revokeKey: (keyId: string) => fetchWithAuth(`/keys/${keyId}`, { method: 'DELETE' }),
-  
-  listEndpoints: () => fetchWithAuth('/endpoints/'),
-  createEndpoint: (data: any) => fetchWithAuth('/endpoints/', { method: 'POST', body: JSON.stringify(data) }),
-  deleteEndpoint: (id: string) => fetchWithAuth(`/endpoints/${id}`, { method: 'DELETE' }),
-  testEndpoint: (id: string) => fetchWithAuth(`/endpoints/${id}/test`, { method: 'POST' }),
-  
-  listRuns: (limit=50, offset=0) => fetchWithAuth(`/runs/?limit=${limit}&offset=${offset}`),
-  getRun: (id: string) => fetchWithAuth(`/runs/${id}`),
-  createRun: (config: any) => fetchWithAuth('/runs/', { method: 'POST', body: JSON.stringify(config) }),
-  
-  getResults: (runId: string) => fetchWithAuth(`/runs/${runId}/results`),
-  
-  authLogin: (credentials: any) => fetchWithAuth('/users/login', { method: 'POST', body: JSON.stringify(credentials) }),
-  authRegister: (credentials: any) => fetchWithAuth('/users/register', { method: 'POST', body: JSON.stringify(credentials) }),
-  
-  getFindings: (limit=50, offset=0) => fetchWithAuth(`/knowledge/findings?limit=${limit}&offset=${offset}`),
-  getWeaknesses: (limit=50, offset=0) => fetchWithAuth(`/knowledge/weaknesses?limit=${limit}&offset=${offset}`),
-  searchKnowledge: (query: string, limit=10) => fetchWithAuth('/knowledge/search', { method: 'POST', body: JSON.stringify({ query, limit }) }),
+  // User Management
+  getMe: (): Promise<UserMe> => fetchWithAuth<UserMe>('/users/me'),
+  deleteMe: (): Promise<void> => fetchWithAuth<void>('/users/me', { method: 'DELETE' }),
 
-  // Lineage & Intelligence APIs
-  getLineage: (runId: string, taskId: string) => fetchWithAuth(`/lineage/runs/${runId}/tasks/${taskId}`),
-  getPromptLineage: (promptId: string) => fetchWithAuth(`/lineage/${promptId}`),
-  getIntelligenceAnomalies: () => fetchWithAuth('/intelligence/anomalies'),
-  getIntelligenceClusters: () => fetchWithAuth('/intelligence/clusters'),
-  getIntelligenceCoverage: () => fetchWithAuth('/intelligence/coverage'),
-  getDomainHarmTypes: (domain: string) => fetchWithAuth(`/domains/${domain}/harm-types`),
-  
-  get: (url: string) => fetchWithAuth(url),
+  // API Key Management
+  listKeys: (): Promise<{ keys: ApiKeyItem[] }> => fetchWithAuth<{ keys: ApiKeyItem[] }>('/keys/'),
+  createKey: (label: string): Promise<CreatedApiKey> =>
+    fetchWithAuth<CreatedApiKey>('/keys/', { method: 'POST', body: JSON.stringify({ label }) }),
+  revokeKey: (keyId: string): Promise<void> => fetchWithAuth<void>(`/keys/${keyId}`, { method: 'DELETE' }),
+
+  // Endpoint Registry
+  listEndpoints: (): Promise<{ endpoints: Endpoint[] }> => fetchWithAuth<{ endpoints: Endpoint[] }>('/endpoints/'),
+  createEndpoint: (data: CreateEndpointPayload): Promise<Endpoint> =>
+    fetchWithAuth<Endpoint>('/endpoints/', { method: 'POST', body: JSON.stringify(data) }),
+  deleteEndpoint: (id: string): Promise<void> => fetchWithAuth<void>(`/endpoints/${id}`, { method: 'DELETE' }),
+  testEndpoint: (id: string): Promise<{ status: string; detail?: string }> =>
+    fetchWithAuth<{ status: string; detail?: string }>(`/endpoints/${id}/test`, { method: 'POST' }),
+
+  // Campaign / Run Pipelines
+  listRuns: (limit = 50, offset = 0): Promise<{ runs: Run[] }> =>
+    fetchWithAuth<{ runs: Run[] }>(`/runs/?limit=${limit}&offset=${offset}`),
+  getRun: (id: string): Promise<Run> => fetchWithAuth<Run>(`/runs/${id}`),
+  createRun: (config: CreateRunPayload): Promise<{ run_id: string; status: string }> =>
+    fetchWithAuth<{ run_id: string; status: string }>('/runs/', { method: 'POST', body: JSON.stringify(config) }),
+  getResults: (runId: string): Promise<RunResultsResponse> =>
+    fetchWithAuth<RunResultsResponse>(`/runs/${runId}/results`),
+
+  // Authentication
+  authLogin: (credentials: { email: string; password?: string }): Promise<{ access_token: string }> =>
+    fetchWithAuth<{ access_token: string }>('/users/login', { method: 'POST', body: JSON.stringify(credentials) }),
+  authRegister: (credentials: { email: string; password?: string }): Promise<{ access_token: string }> =>
+    fetchWithAuth<{ access_token: string }>('/users/register', { method: 'POST', body: JSON.stringify(credentials) }),
+
+  // Threat Knowledge & Vector Embeddings
+  getFindings: (limit = 50, offset = 0): Promise<{ findings: Finding[] }> =>
+    fetchWithAuth<{ findings: Finding[] }>(`/knowledge/findings?limit=${limit}&offset=${offset}`),
+  getWeaknesses: (limit = 50, offset = 0): Promise<{ weaknesses: WeaknessCluster[] }> =>
+    fetchWithAuth<{ weaknesses: WeaknessCluster[] }>(`/knowledge/weaknesses?limit=${limit}&offset=${offset}`),
+  searchKnowledge: (query: string, limit = 10): Promise<{ results: KnowledgeSearchResult[] }> =>
+    fetchWithAuth<{ results: KnowledgeSearchResult[] }>('/knowledge/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, limit }),
+    }),
+
+  // Lineage & Forensic Intelligence
+  getLineage: (runId: string, taskId: string): Promise<Record<string, unknown>> =>
+    fetchWithAuth<Record<string, unknown>>(`/lineage/runs/${runId}/tasks/${taskId}`),
+  getPromptLineage: (promptId: string): Promise<Record<string, unknown>> =>
+    fetchWithAuth<Record<string, unknown>>(`/lineage/${promptId}`),
+  getIntelligenceAnomalies: (): Promise<Record<string, unknown>> =>
+    fetchWithAuth<Record<string, unknown>>('/intelligence/anomalies'),
+  getIntelligenceClusters: (): Promise<Record<string, unknown>> =>
+    fetchWithAuth<Record<string, unknown>>('/intelligence/clusters'),
+  getIntelligenceCoverage: (): Promise<Record<string, unknown>> =>
+    fetchWithAuth<Record<string, unknown>>('/intelligence/coverage'),
+  getDomainHarmTypes: (domain: string): Promise<{ harm_types: string[] }> =>
+    fetchWithAuth<{ harm_types: string[] }>(`/domains/${domain}/harm-types`),
 };

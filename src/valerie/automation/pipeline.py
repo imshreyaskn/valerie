@@ -18,13 +18,15 @@ from valerie.core.settings import settings
 
 
 
+from typing import Literal
+
 def run_red_team_pipeline(
     baseline_csv: str = "resources/baseline_prompts.csv",
     jailbreak_txt: str = "resources/jailbreak_prompt.txt",
     target_harm: str = "Hate Speech",
     
     # NEW: Mode selection
-    prompt_mode: str = "direct",  # "direct" or "jailbreak"
+    prompt_mode: Literal["direct", "jailbreak"] = "direct",  # "direct" or "jailbreak"
     template_id: int = 1,  # Which template to use (if mode="jailbreak")
     
     target_model_id: str = settings.aws.attacker_model_id,
@@ -33,7 +35,7 @@ def run_red_team_pipeline(
     evaluator_model_id: str = settings.aws.judge_model_id,
     evaluator_region: str = settings.aws.region,
     output_csv: str = "outputs/red_team_results.csv",
-    max_test_cases: int = None,
+    max_test_cases: int | None = None,
     use_demo_mode: bool = False
 ):
     """
@@ -241,7 +243,7 @@ if __name__ == "__main__":
     }
     
     print("\n⚙ Configuration:")
-    print(f"  Mode: {CONFIG['prompt_mode'].upper()}")
+    print(f"  Mode: {str(CONFIG['prompt_mode']).upper()}")
     if CONFIG['prompt_mode'] == "jailbreak":
         print(f"  Template ID: {CONFIG['template_id']}")
     print(f"  Target Model: {CONFIG['target_model_id']}")
@@ -251,7 +253,9 @@ if __name__ == "__main__":
     print(f"  Evaluator: {CONFIG['evaluator_mode']}")
     
     # Run pipeline
-    results_df = run_red_team_pipeline(**CONFIG)
+    import typing
+    kwargs = typing.cast(dict[str, typing.Any], CONFIG)
+    results_df = run_red_team_pipeline(**kwargs)
     
     # Optional: Display detailed results
     if results_df is not None:

@@ -38,5 +38,8 @@ class Config:
         return True
 
 
-# Validate configuration on import
-Config.validate()
+# Validate configuration on import gracefully
+try:
+    Config.validate()
+except ValueError:
+    pass

@@ -1,72 +1,20 @@
-import { useState, useEffect } from 'react';
-import './TerminalSimulator.css';
-
 export default function TerminalSimulator() {
-  const [typedCommand, setTypedCommand] = useState('');
-  const [phase, setPhase] = useState(0);
-  const command = 'valerie run --domain bfsi --target mistral/mistral-small';
-
-  useEffect(() => {
-    setTypedCommand('');
-    setPhase(0);
-    let i = 0;
-    let timeout: ReturnType<typeof setTimeout>;
-
-    const typeChar = () => {
-      if (i < command.length) {
-        setTypedCommand(command.slice(0, i + 1));
-        i++;
-        timeout = setTimeout(typeChar, 30);
-      } else {
-        setPhase(1);
-        timeout = setTimeout(() => {
-          setPhase(2);
-          timeout = setTimeout(() => {
-            setPhase(3);
-            timeout = setTimeout(() => {
-              setPhase(4);
-            }, 400);
-          }, 300);
-        }, 400);
-      }
-    };
-    timeout = setTimeout(typeChar, 600);
-
-    return () => clearTimeout(timeout);
-  }, [command]);
-
   return (
-    <div className="terminal-container">
-      <div className="terminal-header">
+    <div className="mx-auto mt-16 mb-32 max-md:mt-8 max-md:mb-16 max-w-[900px] w-[calc(100%-2rem)] min-h-[220px] text-left flex-none p-6 md:py-6 md:px-8 bg-linen flex flex-col overflow-x-auto">
+      <div className="flex justify-between font-mono text-[0.75rem] mb-8 text-steel border-b border-taupe pb-2">
         <span>TERMINAL [OUTPUT_BUFFER]</span>
         <span>VALERIE [v0.1.2]</span>
       </div>
-      <div className="terminal-body">
-        <span>$ {typedCommand}{phase === 0 && typedCommand.length < command.length ? '█' : ''}</span>
-        {phase >= 1 && (
-          <>
-            <br/><br/>
-            <span className="terminal-muted">[INIT] Launching Adversarial Protocol | DOMAIN: BFSI | TARGET: MISTRAL/MISTRAL-SMALL</span>
-          </>
-        )}
-        {phase >= 2 && (
-          <>
-            <br/>
-            <span>[TEST_01] harm_type: "Dangerous Financial Advice" -- Breakthrough: False (Score: 0.12)</span>
-          </>
-        )}
-        {phase >= 3 && (
-          <>
-            <br/>
-            <span>[TEST_02] harm_type: "Fraud Enablement" -- <span className="terminal-highlight">Breakthrough: True</span> (Score: 0.94)</span>
-          </>
-        )}
-        {phase >= 4 && (
-          <>
-            <br/>
-            <span className="terminal-muted">[SYS] Run ID: 7f8a9b2c | Completed in 45.02s.</span>
-          </>
-        )}
+      
+      <div className="font-mono text-[0.85rem] max-md:text-[0.75rem] leading-[1.6] text-slate whitespace-pre-wrap grow font-['Consolas',_monospace]">
+        <span className="font-bold text-slate">$ valerie run --domain bfsi --target mistral/mistral-small</span>
+        <br /><br />
+        <span className="text-steel">
+          [INIT] Launching Adversarial Protocol | DOMAIN: BFSI | TARGET: MISTRAL/MISTRAL-SMALL<br />
+          [TEST_01] harm_type: "Dangerous Financial Advice" -- Breakthrough: False (Score: 0.12)<br />
+          [TEST_02] harm_type: "Fraud Enablement" -- Breakthrough: True (Score: 0.94)<br />
+          [SYS] Run ID: 7f8a9b2c | Completed in 45.02s.
+        </span>
       </div>
     </div>
   );

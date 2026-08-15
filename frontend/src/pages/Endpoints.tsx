@@ -1,354 +1,468 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { api } from '../utils/api';
-import { Zap, Plus, Trash2, Play, ShieldAlert } from 'lucide-react';
+import { Trash2, X, Plus, Play, RefreshCw, Radio, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { PageHeader, ActionButton, StatusBadge } from '../components/ui';
+import type { Endpoint, EndpointProvider } from '../types/domain';
 
-const ALL_TECHNIQUES = [
-  { id: 'indirect_prompting', name: 'Indirect Prompting (Chained Questioning)' },
-  { id: 'obfuscation', name: 'Obfuscation (Synonym Substitution)' },
-  { id: 'role_play', name: 'Role Play (Persona-Based Reframing)' },
-  { id: 'temporal_framing', name: 'Temporal Framing (Chronological Misdirection)' },
-  { id: 'semantic_polysemy', name: 'Semantic Polysemy (Ambiguous Terminology)' },
-  { id: 'hybrid_framing', name: 'Hybrid Framing (Micro-Precision + Macro-Abstraction)' },
-  { id: 'futuristic_projection', name: 'Futuristic Projection' },
-  { id: 'metaphorical_framing', name: 'Metaphorical Framing' },
-  { id: 'historical_analogy', name: 'Historical Analogy' },
-  { id: 'esoteric_jargon', name: 'Esoteric Jargon Injection' },
-  { id: 'emotional_manipulation', name: 'Emotional Manipulation' },
-  { id: 'utilitarian_pretext', name: 'Utilitarian Pretext' },
-  { id: 'societal_integration', name: 'Societal Integration Pretext' },
-  { id: 'alias_proxy', name: 'Alias and Proxy Metaphor' },
-  { id: 'multi_domain_convergence', name: 'Multi-Domain Convergence' },
+const PROVIDER_OPTIONS: { id: EndpointProvider; label: string; defaultUrl: string }[] = [
+  { id: 'openai_compat', label: 'OpenAI Compatible (Bearer Auth)', defaultUrl: 'https://api.openai.com/v1' },
+  { id: 'anthropic',     label: 'Anthropic Claude (x-api-key)',   defaultUrl: 'https://api.anthropic.com/v1' },
+  { id: 'gemini',        label: 'Google Gemini (API Key)',        defaultUrl: 'https://generativelanguage.googleapis.com/v1beta' },
+  { id: 'custom',        label: 'Custom HTTP Proxy / Air-gapped', defaultUrl: 'http://localhost:8000/v1' },
 ];
 
 export default function Endpoints() {
   const navigate = useNavigate();
-  const [endpoints, setEndpoints] = useState<any[]>([]);
+  const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const [showCreateEndpoint, setShowCreateEndpoint] = useState(false);
-  const [showLaunchRun, setShowLaunchRun] = useState(false);
 
-  // Endpoint Form State
+  // Form State
   const [name, setName] = useState('');
-  const [provider, setProvider] = useState('openai_compat');
-  const [baseUrl, setBaseUrl] = useState('');
+  const [provider, setProvider] = useState<EndpointProvider>('openai_compat');
+  const [baseUrl, setBaseUrl] = useState('https://api.openai.com/v1');
   const [apiKey, setApiKey] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Run Config Form State
-  const [selectedEndpointId, setSelectedEndpointId] = useState('');
-  const [domain, setDomain] = useState('bfsi');
-  const [attackerModel, setAttackerModel] = useState('mistral/mistral-large-latest');
-  const [judgeModel, setJudgeModel] = useState('mistral/mistral-large-latest');
-  const [attackerApiKey, setAttackerApiKey] = useState('');
-  const [judgeApiKey, setJudgeApiKey] = useState('');
-  const [selectedTechniques, setSelectedTechniques] = useState<string[]>(['indirect_prompting']);
-  const [maxIterations, setMaxIterations] = useState(3);
-  const [riskThreshold, setRiskThreshold] = useState(0.7);
-  const [isSubmittingRun, setIsSubmittingRun] = useState(false);
+  // Testing connectivity state
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { status: 'ok' | 'error'; detail?: string; latency?: number }>>({});
 
   const loadEndpoints = () => {
-    api.listEndpoints().then(res => {
-      setEndpoints(res.endpoints || []);
-      if (res.endpoints && res.endpoints.length > 0) {
-        setSelectedEndpointId(res.endpoints[0].id);
-      }
-    }).catch(console.error);
+    setLoading(true);
+    api.listEndpoints()
+      .then((res) => {
+        setEndpoints(res.endpoints || []);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadEndpoints(); }, []);
-
-  const handleCreateEndpoint = async () => {
-    await api.createEndpoint({ name, provider, base_url: baseUrl, api_key: apiKey });
-    setShowCreateEndpoint(false);
-    setName('');
-    setBaseUrl('');
-    setApiKey('');
+  useEffect(() => {
     loadEndpoints();
+  }, []);
+
+  const handleProviderChange = (p: EndpointProvider) => {
+    setProvider(p);
+    const opt = PROVIDER_OPTIONS.find((o) => o.id === p);
+    if (opt) setBaseUrl(opt.defaultUrl);
+  };
+
+  const handleCreateEndpoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await api.createEndpoint({
+        name: name.trim(),
+        provider,
+        base_url: baseUrl.trim() || 'https://api.openai.com/v1',
+        api_key: apiKey.trim() || undefined,
+      });
+      setShowCreateEndpoint(false);
+      setName('');
+      setBaseUrl('https://api.openai.com/v1');
+      setApiKey('');
+      loadEndpoints();
+    } catch (err: unknown) {
+      alert(`Failed to save endpoint: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteEndpoint = async (id: string) => {
-    await api.deleteEndpoint(id);
-    loadEndpoints();
+    if (!confirm('Are you sure you want to delete this endpoint? Historical campaign records will remain preserved.')) return;
+    try {
+      await api.deleteEndpoint(id);
+      loadEndpoints();
+    } catch (err: unknown) {
+      alert(`Failed to delete endpoint: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const handleTestEndpoint = async (id: string) => {
+    setTestingId(id);
+    const startTime = performance.now();
     try {
       const res = await api.testEndpoint(id);
-      alert(res.status === 'ok' ? 'Connection Successful' : `Connection Failed: ${res.detail}`);
-    } catch (e) {
-      alert('Test request failed.');
-    }
-  };
-
-  const toggleTechnique = (techId: string) => {
-    if (selectedTechniques.includes(techId)) {
-      if (selectedTechniques.length === 1) return; // Must keep at least one
-      setSelectedTechniques(selectedTechniques.filter(t => t !== techId));
-    } else {
-      setSelectedTechniques([...selectedTechniques, techId]);
-    }
-  };
-
-  const handleLaunchRun = async () => {
-    if (!selectedEndpointId) {
-      alert('Please select or create an endpoint first.');
-      return;
-    }
-    setIsSubmittingRun(true);
-    try {
-      const payload = {
-        domain,
-        endpoint_id: selectedEndpointId,
-        attacker_model: attackerModel,
-        judge_model: judgeModel,
-        attacker_api_key: attackerApiKey || undefined,
-        judge_api_key: judgeApiKey || undefined,
-        selected_techniques: selectedTechniques,
-        max_iterations: maxIterations,
-        risk_threshold: riskThreshold,
-      };
-      await api.createRun(payload);
-      setShowLaunchRun(false);
-      navigate('/');
-    } catch (err: any) {
-      alert(`Failed to launch run: ${err.message || err}`);
+      const latency = Math.round(performance.now() - startTime);
+      setTestResults((prev) => ({
+        ...prev,
+        [id]: {
+          status: res.status === 'ok' ? 'ok' : 'error',
+          detail: res.detail,
+          latency,
+        },
+      }));
+    } catch (err: unknown) {
+      setTestResults((prev) => ({
+        ...prev,
+        [id]: {
+          status: 'error',
+          detail: err instanceof Error ? err.message : 'Connection request failed',
+        },
+      }));
     } finally {
-      setIsSubmittingRun(false);
+      setTestingId(null);
     }
   };
+
+  const filteredEndpoints = useMemo(() => {
+    if (!searchQuery.trim()) return endpoints;
+    const q = searchQuery.toLowerCase();
+    return endpoints.filter(
+      (ep) =>
+        ep.name.toLowerCase().includes(q) ||
+        ep.provider.toLowerCase().includes(q) ||
+        ep.base_url?.toLowerCase().includes(q)
+    );
+  }, [endpoints, searchQuery]);
+
+  const uniqueProvidersCount = useMemo(() => {
+    return new Set(endpoints.map((ep) => ep.provider)).size;
+  }, [endpoints]);
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="display-text text-mountain-slate font-sans uppercase">
-            Target Endpoints & Runs
-          </h1>
-          <p className="text-mountain-steel mt-1 font-mono text-sm tracking-wider uppercase">
-            Model Connections & V3.0 Red-Team Pipelines
-          </p>
+    <section className="flex flex-col w-full hairline-bottom animate-fade-in pb-16" aria-label="Endpoints Registry">
+      {/* ── 1. Page Header ── */}
+      <PageHeader
+        title="TARGET ENDPOINTS"
+        subtitle="LLM REGISTRY, CONNECTION HEALTH &amp; PROXY CONFIGURATION"
+        action={
+          <div className="flex items-center gap-3">
+            <ActionButton
+              variant="secondary"
+              icon={<Play size={14} className="fill-current" />}
+              onClick={() => navigate('/dashboard/campaigns')}
+            >
+              LAUNCH CAMPAIGN
+            </ActionButton>
+            <ActionButton
+              variant="primary"
+              icon={showCreateEndpoint ? <X size={14} /> : <Plus size={14} strokeWidth={2.5} />}
+              onClick={() => setShowCreateEndpoint((v) => !v)}
+            >
+              {showCreateEndpoint ? 'CLOSE REGISTRATION' : '+ ADD ENDPOINT'}
+            </ActionButton>
+          </div>
+        }
+      />
+
+      {/* ── 2. Swiss Telemetry Row ── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-hairline hairline-bottom select-none">
+        {/* 1.01 TOTAL TARGETS */}
+        <div className="py-5 pr-4 md:py-6 md:pr-6 md:pl-0 flex flex-col justify-between">
+          <div>
+            <div className="text-xs font-mono text-steel mb-1">1.01</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
+              REGISTERED TARGETS
+            </div>
+          </div>
+          <div>
+            <div className="font-mono text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
+              {endpoints.length} <span className="text-steel text-sm font-normal">ENDPOINTS</span>
+            </div>
+            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">
+              {uniqueProvidersCount} PROVIDER INTEGRATIONS
+            </div>
+          </div>
         </div>
-        <div className="flex gap-3">
-          <button 
-            onClick={() => setShowLaunchRun(true)} 
-            className="px-4 py-2.5 bg-rose-600 text-white text-sm font-bold uppercase hover:bg-rose-700 transition-all flex items-center gap-2"
-          >
-            <Play className="w-4 h-4 fill-white" /> NEW RED-TEAM RUN
-          </button>
-          <button 
-            onClick={() => setShowCreateEndpoint(true)} 
-            className="px-4 py-2.5 bg-mountain-slate text-mountain-off-white text-sm font-bold uppercase hover:bg-mountain-steel transition-all flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" /> ADD ENDPOINT
-          </button>
+
+        {/* 1.02 ACTIVE PROVIDERS */}
+        <div className="p-4 md:p-6 flex flex-col justify-between">
+          <div>
+            <div className="text-xs font-mono text-steel mb-1">1.02</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
+              ACTIVE PROTOCOLS
+            </div>
+          </div>
+          <div>
+            <div className="font-mono text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
+              {uniqueProvidersCount} <span className="text-steel text-sm font-normal">TYPES</span>
+            </div>
+            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">
+              OPENAI · ANTHROPIC · GEMINI · CUSTOM
+            </div>
+          </div>
+        </div>
+
+        {/* 1.03 CONNECTIVITY STATUS */}
+        <div className="p-4 md:p-6 flex flex-col justify-between">
+          <div>
+            <div className="text-xs font-mono text-steel mb-1">1.03</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
+              SYSTEM HEALTH
+            </div>
+          </div>
+          <div>
+            <div className="font-mono text-2xl md:text-3xl font-bold text-olive tabular-nums leading-none flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-olive" />
+              OPERATIONAL
+            </div>
+            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">
+              LIVE BYOK ROUTING READY
+            </div>
+          </div>
+        </div>
+
+        {/* 1.04 BYOK CREDENTIALS */}
+        <div className="py-5 pl-4 md:py-6 md:pl-6 flex flex-col justify-between">
+          <div>
+            <div className="text-xs font-mono text-steel mb-1">1.04</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
+              CREDENTIAL ISOLATION
+            </div>
+          </div>
+          <div>
+            <div className="font-mono text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
+              ENCRYPTED
+            </div>
+            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">
+              ZERO-RETENTION VAULT
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* NEW ENDPOINT MODAL/PANEL */}
+      {/* ── 3. Endpoint Registration Drawer ── */}
       {showCreateEndpoint && (
-        <div className="bg-white border-2 border-mountain-slate p-6 space-y-4 shadow-lg">
-          <h3 className="text-sm font-bold text-mountain-slate tracking-widest uppercase">New Endpoint</h3>
-          <input 
-            placeholder="Name (e.g. My Local vLLM / Mistral Target)" 
-            value={name} 
-            onChange={e => setName(e.target.value)} 
-            className="w-full bg-mountain-off-white border-2 border-mountain-slate/20 px-4 py-2 text-xs font-mono text-mountain-slate mb-2 focus:border-mountain-slate focus:outline-none" 
-          />
-          <select 
-            value={provider} 
-            onChange={e => setProvider(e.target.value)} 
-            className="w-full bg-mountain-off-white border-2 border-mountain-slate/20 px-4 py-2 text-xs font-mono text-mountain-slate mb-2 uppercase focus:border-mountain-slate focus:outline-none"
-          >
-            <option value="openai_compat">OpenAI Compatible (Bearer Auth)</option>
-            <option value="anthropic">Anthropic (x-api-key)</option>
-            <option value="gemini">Google Gemini</option>
-            <option value="custom">Custom HTTP</option>
-          </select>
-          <input 
-            placeholder="Base URL" 
-            value={baseUrl} 
-            onChange={e => setBaseUrl(e.target.value)} 
-            className="w-full bg-mountain-off-white border-2 border-mountain-slate/20 px-4 py-2 text-xs font-mono text-mountain-slate mb-2 focus:border-mountain-slate focus:outline-none" 
-          />
-          <input 
-            placeholder="API Key / Auth Token" 
-            type="password" 
-            value={apiKey} 
-            onChange={e => setApiKey(e.target.value)} 
-            className="w-full bg-mountain-off-white border-2 border-mountain-slate/20 px-4 py-2 text-xs font-mono text-mountain-slate mb-4 focus:border-mountain-slate focus:outline-none" 
-          />
-          <div className="flex gap-2">
-            <button onClick={handleCreateEndpoint} className="px-4 py-2 bg-mountain-slate text-mountain-off-white font-bold uppercase text-xs hover:bg-mountain-steel transition-colors">Save Endpoint</button>
-            <button onClick={() => setShowCreateEndpoint(false)} className="px-4 py-2 bg-mountain-warm-grey/20 text-mountain-steel font-bold uppercase text-xs hover:text-mountain-slate transition-colors">Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {/* NEW RED TEAM RUN CONFIGURATION PANEL */}
-      {showLaunchRun && (
-        <div className="bg-white border-2 border-rose-600 p-6 space-y-6 shadow-xl">
-          <div className="flex justify-between items-center border-b-2 border-rose-600/20 pb-3">
-            <h3 className="text-sm font-bold text-rose-600 tracking-widest uppercase flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5 text-rose-600" /> Launch Red-Team Pipeline (V3.0 Architecture)
-            </h3>
-            <button onClick={() => setShowLaunchRun(false)} className="text-xs font-mono font-bold text-mountain-steel hover:text-rose-600">✕ CLOSE</button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+        <form onSubmit={handleCreateEndpoint} className="p-6 md:p-8 bg-linen/60 hairline-bottom space-y-6 font-mono animate-fade-in select-none">
+          <div className="flex justify-between items-center pb-2 hairline-bottom">
             <div>
-              <label className="block font-bold text-mountain-slate uppercase mb-1">Target Endpoint</label>
-              <select 
-                value={selectedEndpointId} 
-                onChange={e => setSelectedEndpointId(e.target.value)} 
-                className="w-full bg-mountain-off-white border border-mountain-slate p-2 focus:outline-none"
+              <span className="text-xs font-bold uppercase tracking-wider text-slate block">
+                REGISTER NEW TARGET MODEL ENDPOINT
+              </span>
+              <span className="text-[11px] text-steel">
+                Configure connection parameters for automated security probing and vulnerability evaluation.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateEndpoint(false)}
+              className="text-steel hover:text-slate p-1 cursor-pointer"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] font-bold uppercase text-taupe mb-1">
+                ENDPOINT NAME *
+              </label>
+              <input
+                placeholder="e.g. Claims Agent Prod (Mistral Small)"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                className="w-full bg-ivory border border-hairline px-3 py-2 text-xs font-mono text-slate focus:outline-none focus:border-slate shadow-2xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold uppercase text-taupe mb-1">
+                PROVIDER PROTOCOL *
+              </label>
+              <select
+                value={provider}
+                onChange={(e) => handleProviderChange(e.target.value as EndpointProvider)}
+                className="w-full bg-ivory border border-hairline px-3 py-2 text-xs font-mono text-slate focus:outline-none focus:border-slate shadow-2xs"
               >
-                {endpoints.map(ep => (
-                  <option key={ep.id} value={ep.id}>{ep.name} ({ep.provider})</option>
+                {PROVIDER_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block font-bold text-mountain-slate uppercase mb-1">Target Domain</label>
-              <select 
-                value={domain} 
-                onChange={e => setDomain(e.target.value)} 
-                className="w-full bg-mountain-off-white border border-mountain-slate p-2 focus:outline-none uppercase"
-              >
-                <option value="bfsi">BFSI (Financial Crime / Fraud)</option>
-                <option value="healthcare">Healthcare & Medical</option>
-                <option value="pharmacy">Pharmacy & Controlled Substances</option>
-                <option value="legal">Legal & Compliance</option>
-                <option value="hr">HR & Employee Data</option>
-                <option value="ecommerce">Ecommerce & Payments</option>
-                <option value="general">General Safety Baseline</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block font-bold text-mountain-slate uppercase mb-1">Attacker Model</label>
-              <input 
-                value={attackerModel} 
-                onChange={e => setAttackerModel(e.target.value)} 
-                placeholder="e.g. mistral/mistral-large-latest or groq/llama-3.3-70b-versatile"
-                className="w-full bg-mountain-off-white border border-mountain-slate p-2 focus:outline-none"
+              <label className="block text-[10px] font-bold uppercase text-taupe mb-1">
+                BASE URL / PROXY GATEWAY *
+              </label>
+              <input
+                placeholder="https://api.openai.com/v1"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                required
+                className="w-full bg-ivory border border-hairline px-3 py-2 text-xs font-mono text-slate focus:outline-none focus:border-slate shadow-2xs"
               />
             </div>
 
             <div>
-              <label className="block font-bold text-mountain-slate uppercase mb-1">Judge Model</label>
-              <input 
-                value={judgeModel} 
-                onChange={e => setJudgeModel(e.target.value)} 
-                placeholder="e.g. mistral/mistral-large-latest"
-                className="w-full bg-mountain-off-white border border-mountain-slate p-2 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-mountain-slate uppercase mb-1">Attacker API Key Override (Optional)</label>
-              <input 
+              <label className="block text-[10px] font-bold uppercase text-taupe mb-1">
+                API KEY / BEARER TOKEN (BYOK - OPTIONAL)
+              </label>
+              <input
                 type="password"
-                value={attackerApiKey} 
-                onChange={e => setAttackerApiKey(e.target.value)} 
-                placeholder="Groq / Mistral / OpenRouter Key"
-                className="w-full bg-mountain-off-white border border-mountain-slate p-2 focus:outline-none"
+                placeholder="sk-••••••••••••••••"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                className="w-full bg-ivory border border-hairline px-3 py-2 text-xs font-mono text-slate focus:outline-none focus:border-slate shadow-2xs"
               />
-            </div>
-
-            <div>
-              <label className="block font-bold text-mountain-slate uppercase mb-1">Judge API Key Override (Optional)</label>
-              <input 
-                type="password"
-                value={judgeApiKey} 
-                onChange={e => setJudgeApiKey(e.target.value)} 
-                placeholder="Mistral API Key"
-                className="w-full bg-mountain-off-white border border-mountain-slate p-2 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-mountain-slate uppercase mb-1">Max Iterations: {maxIterations}</label>
-              <input 
-                type="range" min="1" max="10" 
-                value={maxIterations} 
-                onChange={e => setMaxIterations(parseInt(e.target.value))} 
-                className="w-full accent-rose-600 cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <label className="block font-bold text-mountain-slate uppercase mb-1">Risk Threshold: {riskThreshold.toFixed(2)}</label>
-              <input 
-                type="range" min="0.1" max="1.0" step="0.05"
-                value={riskThreshold} 
-                onChange={e => setRiskThreshold(parseFloat(e.target.value))} 
-                className="w-full accent-rose-600 cursor-pointer"
-              />
+              <span className="text-[9px] text-taupe mt-0.5 block">Encrypted at rest. Never echoed back to the browser interface.</span>
             </div>
           </div>
 
-          <div>
-            <label className="block font-bold text-mountain-slate uppercase mb-2 text-xs font-mono">
-              V3.0 Attack Techniques ({selectedTechniques.length} Selected)
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto p-2 border border-mountain-slate/20 bg-mountain-off-white">
-              {ALL_TECHNIQUES.map(tech => {
-                const isSelected = selectedTechniques.includes(tech.id);
-                return (
-                  <button 
-                    key={tech.id}
-                    type="button"
-                    onClick={() => toggleTechnique(tech.id)}
-                    className={`text-left text-[11px] font-mono p-2 border transition-all ${
-                      isSelected 
-                        ? 'border-rose-600 bg-rose-50 font-bold text-rose-900' 
-                        : 'border-gray-200 bg-white text-mountain-steel hover:border-mountain-slate'
-                    }`}
-                  >
-                    {isSelected ? '✓ ' : '+ '}{tech.name}
-                  </button>
-                );
-              })}
-            </div>
+          <div className="flex gap-3 pt-2 hairline-top">
+            <ActionButton variant="primary" type="submit" disabled={isSubmitting || !name.trim()}>
+              {isSubmitting ? 'REGISTERING' : 'SAVE & REGISTER ENDPOINT'}
+            </ActionButton>
+            <ActionButton variant="ghost" type="button" onClick={() => setShowCreateEndpoint(false)}>
+              CANCEL
+            </ActionButton>
+          </div>
+        </form>
+      )}
+
+      {/* ── 4. Search & Filter Omnibar ── */}
+      <div className="w-full hairline-bottom select-none py-3 font-mono">
+        <div className="relative w-full">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-steel pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search endpoints by name, provider protocol, or base URL [/]"
+            className="w-full pl-10 pr-10 py-2 bg-linen/50 border border-hairline text-xs font-mono text-slate placeholder:text-taupe focus:bg-ivory focus:border-slate focus:outline-none transition-all shadow-2xs"
+            aria-label="Search endpoints"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-steel hover:text-slate p-0.5 cursor-pointer"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── 5. Endpoints Swiss Ledger ── */}
+      {loading ? (
+        <div className="py-16 text-center font-mono text-xs text-steel">
+          LOADING REGISTERED TARGET ENDPOINTS
+        </div>
+      ) : filteredEndpoints.length > 0 ? (
+        <div className="w-full hairline-bottom select-none font-mono" role="region" aria-label="Endpoints Table">
+          {/* Table Headers */}
+          <div className="hidden md:grid md:grid-cols-[60px_220px_1fr_180px_100px] items-center p-0 hairline-bottom bg-linen/30 text-xs font-semibold uppercase text-steel">
+            <div className="p-3 md:p-4 hairline-right">#</div>
+            <div className="p-3 md:p-4 hairline-right">ENDPOINT NAME</div>
+            <div className="p-3 md:p-4 hairline-right">PROVIDER &amp; BASE URL</div>
+            <div className="p-3 md:p-4 hairline-right text-center">CONNECTIVITY TEST</div>
+            <div className="p-3 md:p-4 text-right">ACTION</div>
           </div>
 
-          <div className="flex gap-3 pt-2">
-            <button 
-              onClick={handleLaunchRun} 
-              disabled={isSubmittingRun}
-              className="px-6 py-2.5 bg-rose-600 text-white font-bold uppercase text-xs hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              <Play className="w-4 h-4 fill-white" /> {isSubmittingRun ? 'Dispatching...' : 'Start Pipeline Run'}
-            </button>
-            <button 
-              onClick={() => setShowLaunchRun(false)} 
-              className="px-4 py-2.5 bg-mountain-warm-grey/20 text-mountain-steel font-bold uppercase text-xs hover:text-mountain-slate transition-colors"
-            >
-              Cancel
-            </button>
+          {/* Rows */}
+          <div className="divide-y divide-hairline">
+            {filteredEndpoints.map((ep, idx) => {
+              const indexStr = String(idx + 1).padStart(2, '0');
+              const isTesting = testingId === ep.id;
+              const result = testResults[ep.id];
+
+              return (
+                <div
+                  key={ep.id}
+                  className="grid grid-cols-1 md:grid-cols-[60px_220px_1fr_180px_100px] items-center p-0 hover:bg-linen/40 transition-colors bg-ivory"
+                >
+                  {/* # Index */}
+                  <div className="p-3 md:p-4 text-sm font-mono text-steel md:hairline-right select-none">
+                    {indexStr}
+                  </div>
+
+                  {/* Endpoint Name */}
+                  <div className="p-3 md:p-4 md:hairline-right min-w-0">
+                    <p className="text-sm font-bold uppercase tracking-tight text-slate truncate">
+                      {ep.name}
+                    </p>
+                    <p className="text-[10px] text-taupe font-mono truncate mt-0.5">
+                      ID: {ep.id}
+                    </p>
+                  </div>
+
+                  {/* Provider & Base URL */}
+                  <div className="p-3 md:p-4 md:hairline-right min-w-0 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 bg-linen border border-hairline text-slate shrink-0">
+                        {ep.provider}
+                      </span>
+                      <span className="text-steel font-mono truncate">
+                        {ep.base_url || 'Default Cloud Gateway'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Connectivity Test */}
+                  <div className="p-3 md:p-4 md:hairline-right text-left md:text-center">
+                    {result ? (
+                      <div className="flex items-center justify-start md:justify-center gap-2">
+                        <StatusBadge
+                          label={result.status === 'ok' ? `CONNECTED (${result.latency}ms)` : 'CONNECTION FAILED'}
+                          variant={result.status === 'ok' ? 'olive' : 'maroon'}
+                        />
+                        <button
+                          onClick={() => handleTestEndpoint(ep.id)}
+                          disabled={isTesting}
+                          className="text-steel hover:text-slate p-1 cursor-pointer"
+                          title="Re-test Connection"
+                        >
+                          <RefreshCw size={11} className={isTesting ? 'animate-spin' : ''} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleTestEndpoint(ep.id)}
+                        disabled={isTesting}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-hairline bg-linen/50 hover:bg-slate hover:text-parchment text-slate text-xs font-bold uppercase transition-all cursor-pointer"
+                      >
+                        {isTesting ? (
+                          <>
+                            <RefreshCw size={11} className="animate-spin" />
+                            <span>TESTING</span>
+                          </>
+                        ) : (
+                          <>
+                            <Radio size={11} className="text-olive" />
+                            <span>TEST PING</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="p-3 md:p-4 text-left md:text-right">
+                    <button
+                      onClick={() => handleDeleteEndpoint(ep.id)}
+                      className="p-1.5 text-steel hover:text-maroon hover:bg-maroon/10 border border-transparent hover:border-maroon/30 transition-colors cursor-pointer"
+                      title="Delete Endpoint"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        /* Empty State */
+        <div className="py-16 px-6 text-center font-mono select-none hairline-bottom bg-linen/20">
+          <p className="text-xs font-bold uppercase text-slate">NO TARGET ENDPOINTS REGISTERED</p>
+          <p className="text-[11px] text-steel mt-1 max-w-md mx-auto">
+            Register your model endpoints with BYOK credentials to execute automated adversarial evaluations.
+          </p>
+          <div className="mt-4">
+            <ActionButton variant="primary" onClick={() => setShowCreateEndpoint(true)}>
+              + REGISTER FIRST ENDPOINT
+            </ActionButton>
           </div>
         </div>
       )}
-
-      {/* ENDPOINT LIST */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {endpoints.map(ep => (
-          <div key={ep.id} className="bg-white border-2 border-mountain-slate p-6 hover:shadow-md transition-all">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <Zap className="w-5 h-5 text-mountain-slate" />
-                <span className="font-bold text-mountain-slate uppercase tracking-widest">{ep.name}</span>
-              </div>
-              <button onClick={() => handleDeleteEndpoint(ep.id)} className="text-mountain-steel hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
-            </div>
-            <div className="text-xs font-mono text-mountain-steel mb-4 truncate">{ep.base_url || 'No Base URL'}</div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs font-mono uppercase bg-mountain-slate/10 px-2 py-1 text-mountain-steel">{ep.provider}</span>
-              <button onClick={() => handleTestEndpoint(ep.id)} className="text-xs font-bold text-mountain-slate hover:opacity-70 uppercase">Test Connection</button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+    </section>
   );
 }

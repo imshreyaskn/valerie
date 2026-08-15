@@ -1,5 +1,11 @@
+"""
+[LEGACY / EXPERIMENTAL CODE]
+Note: This is legacy research code using AWS Bedrock directly.
+For active production code, use src/valerie/graph/nodes.py and src/valerie/llm/llm_client.py.
+"""
 import json
 import re
+
 from typing import Any, Dict, List
 import pandas as pd
 from pydantic import BaseModel, Field, conlist, constr, confloat

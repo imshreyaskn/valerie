@@ -80,8 +80,9 @@ def generate_jailbreak_test_cases(grouped_df, template: str, harm_type: str) -> 
     """
     
     # Extract only the prompts belonging to the chosen harm type
-    harm_type_df = grouped.get_group(harm_type)
+    harm_type_df = grouped_df.get_group(harm_type)
     baseline_prompts = harm_type_df['Prompt']
+
     
     jailbreak_prompts_list = []
 

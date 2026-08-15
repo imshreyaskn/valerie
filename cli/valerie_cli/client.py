@@ -6,8 +6,9 @@ from . import config
 
 console = Console()
 
-class VaelerieClient:
+class ValerieClient:
     def __init__(self):
+
         cfg = config.load()
         self.base_url = cfg.get("backend_url", "").rstrip("/")
         self.api_key = cfg.get("api_key", "")
@@ -42,9 +43,18 @@ class VaelerieClient:
             raise typer.Exit(1)
         return response
 
+    def _build_url(self, path: str) -> str:
+        base = self.base_url.rstrip("/")
+        if not path.startswith("/"):
+            path = "/" + path
+        if not base.endswith("/v1") and not path.startswith("/v1/") and not path.startswith("/health"):
+            return f"{base}/v1{path}"
+        return f"{base}{path}"
+
     def get(self, path: str, suppress_errors: bool = False, **kwargs) -> Optional[requests.Response]:
         try:
-            r = self.session.get(f"{self.base_url}{path}", timeout=30, **kwargs)
+            url = self._build_url(path)
+            r = self.session.get(url, timeout=30, **kwargs)
             return self._handle_response(r)
         except requests.exceptions.RequestException as e:
             if suppress_errors:
@@ -54,11 +64,13 @@ class VaelerieClient:
 
     def post(self, path: str, json: Any = None, **kwargs) -> requests.Response:
         try:
-            r = self.session.post(f"{self.base_url}{path}", json=json, timeout=60, **kwargs)
+            url = self._build_url(path)
+            r = self.session.post(url, json=json, timeout=60, **kwargs)
             return self._handle_response(r)
         except requests.exceptions.RequestException as e:
             console.print(f"\n[red]Network Error:[/] {e}")
             raise typer.Exit(1)
+
 
     def ping(self) -> bool:
         try:
@@ -66,3 +78,7 @@ class VaelerieClient:
             return r.status_code in (200, 404)  # 404 means server is up, just no /health yet
         except Exception:
             return False
+
+# Backwards compatibility alias for class name typo (C-01)
+VaelerieClient = ValerieClient
+
