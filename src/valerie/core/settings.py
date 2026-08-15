@@ -19,6 +19,9 @@ from pydantic import Field, field_validator, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
 import sys
+import logging
+
+logger = logging.getLogger("core.settings")
 
 
 class AWSConfig(BaseSettings):
@@ -208,21 +211,21 @@ class Settings(BaseSettings):
     )
 
     master_key: str = Field(
-        default="valerie_dev_master_key_change_in_prod",
+        ...,
         alias="VALERIE_MASTER_KEY",
-        description="Master API key for administrative access"
+        description="Master API key for administrative access. REQUIRED in production."
     )
 
-    jwt_secret_key: str | None = Field(
-        default=None,
+    jwt_secret_key: str = Field(
+        ...,
         alias="JWT_SECRET_KEY",
-        description="Secret key for signing JWT tokens"
+        description="Secret key for signing JWT tokens. REQUIRED in production."
     )
 
     worker_secret: str = Field(
-        default="valerie_dev_worker_secret",
+        ...,
         alias="WORKER_SECRET",
-        description="Shared secret for API to Worker communication"
+        description="Shared secret for API to Worker communication. REQUIRED in production."
     )
 
     allowed_origins: list[str] = Field(
@@ -251,13 +254,33 @@ class Settings(BaseSettings):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
     
+    @field_validator('master_key', 'jwt_secret_key', 'worker_secret')
+    @classmethod
+    def validate_secrets_not_default(cls, v: str, info) -> str:
+        """Fail-fast: Reject default/dev secrets in any environment"""
+        default_secrets = [
+            "valerie_dev_master_key_change_in_prod",
+            "valerie_dev_worker_secret",
+        ]
+        if v in default_secrets:
+            raise ValueError(
+                f"Default secret detected for {info.field_name}. "
+                "You MUST set explicit secrets via environment variables. "
+                "Never use default values in any deployment."
+            )
+        if len(v) < 32:
+            raise ValueError(
+                f"Secret {info.field_name} is too short (min 32 chars). "
+                "Use a cryptographically secure random value."
+            )
+        return v
+
     @field_validator('environment')
     @classmethod
     def validate_environment(cls, v: str) -> str:
         """Production safety check"""
         if v == "production":
-            # In production, we might want additional checks
-            print("WARNING: Running in PRODUCTION mode")
+            logger.warning("WARNING: Running in PRODUCTION mode - ensure all secrets are configured")
         return v
     
     def is_production(self) -> bool:

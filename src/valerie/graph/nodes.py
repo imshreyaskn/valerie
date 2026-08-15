@@ -367,59 +367,163 @@ async def attack_worker(state: dict) -> dict:
 
 
 async def aggregate_and_persist(state: dict) -> dict:
+    """
+    Persist evaluation results and update pipeline run status atomically.
+    
+    CRITICAL: This function ensures data integrity by:
+    1. Attempting atomic transactions on replica sets
+    2. On failure, persisting results FIRST before updating run status
+    3. Never marking a run as completed without successfully persisting results
+    4. Using retry logic with exponential backoff for transient failures
+    """
+    import uuid
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    
     results = state.get("results", [])
-    if not results: return {}
+    if not results:
+        logger.warning(f"Run {state.get('run_id')}: No results to persist")
+        return {}
     
     successful = sum(1 for r in results if r["is_breakthrough"])
     avg_score = sum(r["overall_risk_score"] for r in results) / max(1, len(results))
     
-    import uuid
     run_id = state.get("run_id")
     user_id = state.get("user_id")
+    
+    # Prepare evaluation documents with unique IDs
     eval_docs = []
     for r in results:
         eval_docs.append({
             "id": str(uuid.uuid4()),
             "user_id": user_id,
             "run_id": run_id,
-            **r
+            "task_id": r.get("task_id"),
+            "original_prompt": r.get("original_prompt"),
+            "harm_type": r.get("harm_type"),
+            "technique_id": r.get("attack_family"),
+            "adversarial_prompt": r.get("adversarial_prompt"),
+            "target_response": r.get("target_response"),
+            "iterations_used": r.get("iterations_used", 0),
+            "is_breakthrough": r.get("is_breakthrough", False),
+            "pii_leakage": r.get("pii_leakage", False),
+            "pii_examples": r.get("pii_examples", []),
+            "bias": r.get("bias", "none"),
+            "bias_examples": r.get("bias_examples", []),
+            "toxicity": r.get("toxicity", False),
+            "toxicity_severity": r.get("toxicity_severity", "none"),
+            "safety_concern": r.get("safety_concern", ""),
+            "overall_risk_score": r.get("overall_risk_score", 0.0),
+            "novelty": r.get("novelty", 0.0),
+            "diversity": r.get("diversity", 0.0),
+            "realism": r.get("realism", 0.0),
+            "transferability": r.get("transferability", 0.0),
+            "semantic_quality": r.get("semantic_quality", 0.0),
         })
 
-    # Atomic transaction attempt for MongoDB replica sets / clusters, with fallback (D-08)
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=5),
+        retry=retry_if_exception_type(Exception)
+    )
+    async def _persist_with_retry():
+        """Persist results with retry logic for transient failures."""
+        # Try atomic transaction first (works on replica sets)
+        try:
+            async with await db.client.start_session() as session:
+                async with session.start_transaction():
+                    if eval_docs:
+                        await db.evaluation_results.insert_many(eval_docs, session=session)
+                    await db.pipeline_runs.update_one(
+                        {"id": run_id},
+                        {"$set": {
+                            "status": "completed",
+                            "total_tasks": len(results),
+                            "successful_attacks": successful,
+                            "avg_risk_score": avg_score,
+                            "completed_at": datetime.utcnow()
+                        }},
+                        session=session
+                    )
+                    return True
+        except Exception as e:
+            error_msg = str(e).lower()
+            # Check if this is a "transactions not supported" error (standalone mongo)
+            if "transaction" in error_msg or "replica set" in error_msg.lower():
+                # Fall through to non-transactional path
+                pass
+            else:
+                # Re-raise for retry on transient errors
+                raise
+        
+        # Non-transactional path for standalone MongoDB
+        # CRITICAL: Insert results FIRST, then update status
+        # This ensures we never mark a run as completed without its results
+        try:
+            if eval_docs:
+                insert_result = await db.evaluation_results.insert_many(eval_docs, ordered=True)
+                if len(insert_result.inserted_ids) != len(eval_docs):
+                    raise Exception(
+                        f"Partial insert: {len(insert_result.inserted_ids)}/{len(eval_docs)} "
+                        "evaluation results persisted"
+                    )
+                logger.info(f"Persisted {len(insert_result.inserted_ids)} evaluation results for run {run_id}")
+            
+            # Only after successful result insertion, update run status
+            update_result = await db.pipeline_runs.update_one(
+                {"id": run_id},
+                {"$set": {
+                    "status": "completed",
+                    "total_tasks": len(results),
+                    "successful_attacks": successful,
+                    "avg_risk_score": avg_score,
+                    "completed_at": datetime.utcnow()
+                }}
+            )
+            
+            if update_result.modified_count == 0:
+                logger.warning(f"Run {run_id}: Pipeline run document not found or already completed")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to persist results for run {run_id}: {e}")
+            # Mark run as failed if we can't persist results
+            await db.pipeline_runs.update_one(
+                {"id": run_id},
+                {"$set": {
+                    "status": "failed",
+                    "error_message": f"Result persistence failed: {str(e)[:500]}"
+                }}
+            )
+            raise  # Re-raise to trigger retry
+    
+    # Execute persistence with retry
     try:
-        async with await db.client.start_session() as session:
-            async with session.start_transaction():
-                if eval_docs:
-                    await db.evaluation_results.insert_many(eval_docs, session=session)
-                await db.pipeline_runs.update_one(
-                    {"id": state["run_id"]},
-                    {"$set": {
-                        "status": "completed",
-                        "total_tasks": len(results),
-                        "successful_attacks": successful,
-                        "avg_risk_score": avg_score
-                    }},
-                    session=session
-                )
+        await _persist_with_retry()
     except Exception as e:
-        logger.warning(f"Session transaction not supported on standalone Mongo instance ({e}), using direct update fallback.")
-        if eval_docs:
-            await db.evaluation_results.insert_many(eval_docs)
-        await db.pipeline_runs.update_one(
-            {"id": state["run_id"]},
-            {"$set": {
-                "status": "completed",
-                "total_tasks": len(results),
-                "successful_attacks": successful,
-                "avg_risk_score": avg_score
-            }}
-        )
+        logger.error(f"Failed to persist run {run_id} after retries: {e}")
+        # Final fallback: at least mark the run as failed
+        try:
+            await db.pipeline_runs.update_one(
+                {"id": run_id},
+                {"$set": {
+                    "status": "failed",
+                    "error_message": f"Final persistence failure: {str(e)[:500]}"
+                }}
+            )
+        except Exception:
+            pass  # Can't do anything more
     
     await publisher.publish(Event(
         type="run.completed",
         source="execution.aggregate",
-        correlation_id=state["run_id"],
-        payload={"run_id": state["run_id"], "total_tasks": len(results), "successful_attacks": successful, "avg_risk_score": avg_score}
+        correlation_id=run_id,
+        payload={
+            "run_id": run_id,
+            "total_tasks": len(results),
+            "successful_attacks": successful,
+            "avg_risk_score": avg_score
+        }
     ))
     
     return {}
