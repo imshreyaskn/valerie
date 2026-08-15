@@ -2,6 +2,9 @@ import certifi
 from motor.motor_asyncio import AsyncIOMotorClient
 import redis.asyncio as redis
 from valerie.core.settings import settings
+import logging
+
+logger = logging.getLogger("db.engine")
 
 MONGO_URI = settings.database.connection_url
 REDIS_URI = settings.redis.url
@@ -24,18 +27,53 @@ try:
         MONGO_URI,
         **kwargs
     )
-except Exception:
+    logger.info("MongoDB client initialized successfully")
+except Exception as e:
     # Fallback to local connection if remote SRV DNS lookup fails (e.g. offline unit test environment)
+    logger.warning(f"Failed to initialize MongoDB client with URI: {MONGO_URI}. Falling back to localhost. Error: {e}")
     client = AsyncIOMotorClient("mongodb://localhost:27017")
 
 db = client[settings.database.database]
 
 # Initialize Redis Client with socket timeout and connection pool
-redis_client = redis.from_url(
-    REDIS_URI,
-    decode_responses=True,
-    socket_timeout=5.0,
-    socket_connect_timeout=5.0,
-    retry_on_timeout=True,
-)
+try:
+    redis_client = redis.from_url(
+        REDIS_URI,
+        decode_responses=True,
+        socket_timeout=5.0,
+        socket_connect_timeout=5.0,
+        retry_on_timeout=True,
+    )
+    logger.info("Redis client initialized successfully")
+except Exception as e:
+    logger.warning(f"Failed to initialize Redis client with URI: {REDIS_URI}. Error: {e}")
+    redis_client = redis.Redis(
+        host="localhost",
+        port=6379,
+        db=0,
+        decode_responses=True,
+        socket_timeout=5.0,
+        socket_connect_timeout=5.0,
+    )
+
+
+async def close_db_connections():
+    """
+    Properly close all database connections on shutdown (H-03).
+    
+    This prevents connection leaks and resource exhaustion in long-running servers.
+    Should be called during application lifespan shutdown.
+    """
+    logger.info("Closing database connections...")
+    try:
+        client.close()
+        logger.info("MongoDB connections closed")
+    except Exception as e:
+        logger.error(f"Error closing MongoDB connections: {e}")
+    
+    try:
+        await redis_client.close()
+        logger.info("Redis connections closed")
+    except Exception as e:
+        logger.error(f"Error closing Redis connections: {e}")
 

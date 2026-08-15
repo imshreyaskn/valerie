@@ -23,6 +23,19 @@ logger = logging.getLogger("api.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Application lifespan with proper resource management (H-03).
+    
+    Startup:
+    - Initialize database indexes
+    - Connect event publisher
+    - Start consumer loops
+    
+    Shutdown:
+    - Cancel consumer tasks gracefully
+    - Close database connections
+    - Close event publisher
+    """
     logger.info("Initializing Valerie API service...")
     await init_indexes()
     await publisher.connect()
@@ -30,30 +43,52 @@ async def lifespan(app: FastAPI):
     from valerie.knowledge.consumers import start_knowledge_consumer
     from valerie.intelligence.consumers import start_intelligence_consumer
     from valerie.learning.consumers import start_learning_consumer
+    from valerie.db.engine import close_db_connections
     
     app.state.knowledge_consumer_task = start_knowledge_consumer()
     app.state.intelligence_consumer_task = start_intelligence_consumer()
     app.state.learning_consumer_task = start_learning_consumer()
     
-    yield
+    logger.info("All services initialized successfully")
     
-    import asyncio
-    
-    tasks = []
-    if hasattr(app.state, "knowledge_consumer_task"):
-        tasks.append(app.state.knowledge_consumer_task)
-    if hasattr(app.state, "intelligence_consumer_task"):
-        tasks.append(app.state.intelligence_consumer_task)
-    if hasattr(app.state, "learning_consumer_task"):
-        tasks.append(app.state.learning_consumer_task)
+    try:
+        yield
+    finally:
+        # Graceful shutdown sequence
+        logger.info("Shutting down Valerie API service...")
         
-    for task in tasks:
-        task.cancel()
+        import asyncio
         
-    if tasks:
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # 1. Cancel consumer tasks first
+        tasks = []
+        if hasattr(app.state, "knowledge_consumer_task"):
+            tasks.append(app.state.knowledge_consumer_task)
+        if hasattr(app.state, "intelligence_consumer_task"):
+            tasks.append(app.state.intelligence_consumer_task)
+        if hasattr(app.state, "learning_consumer_task"):
+            tasks.append(app.state.learning_consumer_task)
+            
+        for task in tasks:
+            task.cancel()
+            
+        if tasks:
+            logger.info(f"Cancelling {len(tasks)} consumer tasks...")
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.warning(f"Consumer task {i} raised exception during cancellation: {result}")
         
-    await publisher.close()
+        # 2. Close event publisher
+        try:
+            await publisher.close()
+            logger.info("Event publisher closed")
+        except Exception as e:
+            logger.error(f"Error closing event publisher: {e}")
+        
+        # 3. Close database connections (H-03)
+        await close_db_connections()
+        
+        logger.info("Shutdown complete")
 
 app = FastAPI(
     title="Valerie Red Team API",
@@ -113,20 +148,27 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler with security hardening (H-06).
+    
+    - Never expose internal details in production
+    - Log full details server-side for debugging
+    - Return generic error message to clients
+    """
     request_id = getattr(request.state, "request_id", "unknown")
     logger.error(f"[{request_id}] Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
     
-    detail = "An internal server error occurred."
-    if settings.debug or settings.is_development():
-        detail = str(exc)
-
+    # H-06: Never expose internal exception details, even in debug mode
+    # Only return safe, generic error messages
+    detail = "An internal server error occurred. Please contact support with the correlation ID."
+    
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "InternalServerError",
             "detail": detail,
-            "message": detail,
-            "correlation_id": request_id
+            "correlation_id": request_id,
+            "support_reference": f"Request ID: {request_id}"
         }
     )
 
@@ -144,38 +186,56 @@ v1_router.include_router(intelligence.router)
 v1_router.include_router(lineage.router)
 v1_router.include_router(knowledge.router)
 
-# Mount /v1 router AND root aliases for backward compatibility (X-04)
+# Mount /v1 router ONLY - remove duplicate root aliases (X-04)
+# Duplicate routers cause security policy inconsistency and API documentation confusion
 app.include_router(v1_router)
-app.include_router(domains.router)
-app.include_router(attacks.router)
-app.include_router(validate.router)
-app.include_router(runs.router)
-app.include_router(results.router)
-app.include_router(endpoints.router)
-app.include_router(keys.router)
-app.include_router(users.router)
-app.include_router(intelligence.router)
-app.include_router(lineage.router)
-app.include_router(knowledge.router)
 
 
-# Deep Health Check (B-39)
+# Comprehensive Health Check (B-39, M-07)
+# Checks all critical dependencies including consumer health
 @app.get("/health")
 async def health_check():
+    from valerie.knowledge.consumers import CONSUMER_ERROR_COUNT as KNOWLEDGE_ERRORS
+    from valerie.intelligence.consumers import CONSUMER_ERROR_COUNT as INTELLIGENCE_ERRORS
+    from valerie.learning.consumers import CONSUMER_ERROR_COUNT as LEARNING_ERRORS
+    
     mongo_status = "ok"
     redis_status = "ok"
-
+    consumers_status = "ok"
+    
+    # MongoDB health
     try:
         await db.command("ping")
     except Exception as e:
         mongo_status = f"unhealthy: {str(e)[:100]}"
+        logger.error(f"Health check: MongoDB unhealthy - {e}")
 
+    # Redis health
     try:
         await redis_client.ping()
     except Exception as e:
         redis_status = f"unhealthy: {str(e)[:100]}"
+        logger.error(f"Health check: Redis unhealthy - {e}")
+    
+    # Consumer health check (M-07)
+    consumer_issues = []
+    if KNOWLEDGE_ERRORS >= 5:
+        consumer_issues.append(f"knowledge_consumer_errors={KNOWLEDGE_ERRORS}")
+    if INTELLIGENCE_ERRORS >= 5:
+        consumer_issues.append(f"intelligence_consumer_errors={INTELLIGENCE_ERRORS}")
+    if LEARNING_ERRORS >= 5:
+        consumer_issues.append(f"learning_consumer_errors={LEARNING_ERRORS}")
+    
+    if consumer_issues:
+        consumers_status = "degraded: " + ", ".join(consumer_issues)
+        logger.warning(f"Health check: Consumer degradation detected - {consumer_issues}")
 
-    is_healthy = (mongo_status == "ok") and (redis_status == "ok")
+    # Determine overall health
+    is_healthy = (
+        mongo_status == "ok" and 
+        redis_status == "ok" and 
+        consumers_status == "ok"
+    )
     status_code = 200 if is_healthy else 503
 
     return JSONResponse(
@@ -185,7 +245,13 @@ async def health_check():
             "environment": settings.environment,
             "services": {
                 "mongodb": mongo_status,
-                "redis": redis_status
+                "redis": redis_status,
+                "consumers": consumers_status
+            },
+            "metrics": {
+                "knowledge_consumer_errors": KNOWLEDGE_ERRORS,
+                "intelligence_consumer_errors": INTELLIGENCE_ERRORS,
+                "learning_consumer_errors": LEARNING_ERRORS
             }
         }
     )

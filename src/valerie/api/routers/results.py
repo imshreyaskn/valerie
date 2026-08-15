@@ -80,16 +80,40 @@ async def get_run_results(run_id: str, limit: int = 100, offset: int = 0, user =
     }
 
 @router.get("/{run_id}/export")
-async def export_run_results(run_id: str, format: str = "csv", user = Depends(require_api_key)):
+async def export_run_results(run_id: str, format: str = "csv", page: int = 1, page_size: int = 1000, user = Depends(require_api_key)):
+    """
+    Export run results with pagination to prevent memory exhaustion (M-02).
+    
+    Args:
+        run_id: The pipeline run ID
+        format: Output format (csv or json)
+        page: Page number (1-indexed), default 1
+        page_size: Results per page, max 1000, default 1000
+    """
+    # Enforce reasonable limits (M-02)
+    page_size = min(max(page_size, 1), 1000)
+    page = max(page, 1)
+    offset = (page - 1) * page_size
+    
     query = {"id": run_id} if user["id"] == "admin_master" else {"id": run_id, "user_id": user["id"]}
     run = await db.pipeline_runs.find_one(query)
     if not run:
         raise HTTPException(404, "Run not found")
+    
+    # Get total count for pagination metadata
+    total_count = await db.evaluation_results.count_documents({"run_id": run_id})
         
-    results = await _aggregate_results(run_id, limit=10000, offset=0)
+    results = await _aggregate_results(run_id, limit=page_size, offset=offset)
     
     if format == "json":
-        return results
+        return {
+            "run_id": run_id,
+            "page": page,
+            "page_size": page_size,
+            "total_count": total_count,
+            "total_pages": (total_count + page_size - 1) // page_size,
+            "results": results
+        }
         
     output = StringIO()
     writer = csv.writer(output)
@@ -104,6 +128,12 @@ async def export_run_results(run_id: str, format: str = "csv", user = Depends(re
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=run_{run_id}.csv"}
+        headers={
+            "Content-Disposition": f"attachment; filename=run_{run_id}_page{page}.csv",
+            "X-Total-Count": str(total_count),
+            "X-Page": str(page),
+            "X-Page-Size": str(page_size),
+            "X-Total-Pages": str((total_count + page_size - 1) // page_size)
+        }
     )
 
