@@ -1,12 +1,11 @@
 ```
-# Python
+# Dependencies
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-venv/
 .venv/
+venv/
 .env
 .env.local
 .env.*
@@ -16,24 +15,15 @@ dist/
 build/
 *.egg-info/
 
-# Testing
-.coverage
-coverage/
-htmlcov/
-.pytest_cache/
-.mypy_cache/
-
-# Logs
+# Logs and temp files
 *.log
-
-# OS
-.DS_Store
-Thumbs.db
+*.tmp
 
 # Editors
 .vscode/
 .idea/
-*.swp
-*.swo
-*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
 ```
