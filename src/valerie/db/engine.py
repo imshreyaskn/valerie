@@ -1,3 +1,6 @@
+import asyncio
+import logging
+from typing import Any
 import certifi
 from motor.motor_asyncio import AsyncIOMotorClient
 import redis.asyncio as redis
@@ -6,10 +9,10 @@ import logging
 
 logger = logging.getLogger("db.engine")
 
+logger = logging.getLogger("valerie.db.engine")
+
 MONGO_URI = settings.database.connection_url
 REDIS_URI = settings.redis.url
-
-from typing import Any
 
 # Initialize Motor Client with connection pool tuning and certifi TLS for Windows
 try:
@@ -77,3 +80,24 @@ async def close_db_connections():
     except Exception as e:
         logger.error(f"Error closing Redis connections: {e}")
 
+async def close_db_connections(timeout: float = 5.0):
+    """
+    Gracefully and safely closes MongoDB and Redis connection pools with timeouts (H-03).
+    """
+    logger.info("Closing database and cache connections...")
+    
+    # 1. Close Redis Client
+    try:
+        if redis_client:
+            await asyncio.wait_for(redis_client.aclose(), timeout=timeout)
+            logger.info("Redis connection closed cleanly.")
+    except Exception as e:
+        logger.warning(f"Error during Redis client shutdown: {e}")
+
+    # 2. Close Motor / Mongo Client
+    try:
+        if client:
+            client.close()
+            logger.info("MongoDB client closed cleanly.")
+    except Exception as e:
+        logger.warning(f"Error during MongoDB client shutdown: {e}")

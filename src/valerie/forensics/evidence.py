@@ -1,355 +1,232 @@
-"""
-Forensic Evidence Hashing and Chain of Custody (C-04, H-09)
-============================================================
-
-This module provides cryptographic integrity guarantees for all evidence
-collected during red teaming operations. It ensures:
-
-1. Tamper-evident storage via SHA-256 hashes
-2. Chain of custody tracking with provenance metadata
-3. Immutable audit logging
-4. Timestamp verification
-
-Design Principles:
-- All prompts/responses are hashed on ingestion
-- Hashes stored separately from content (defense in depth)
-- Provenance chain links derived data to source
-- Audit log is append-only
-"""
-
 import hashlib
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Union
+from uuid import uuid4
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger("forensics")
+from valerie.db.engine import db
+from valerie.core.events import Event, publisher
 
+logger = logging.getLogger("valerie.forensics")
 
-def compute_sha256(content: str) -> str:
-    """
-    Compute SHA-256 hash of content string.
-    
-    Args:
-        content: String content to hash
-        
-    Returns:
-        Hex-encoded SHA-256 hash
-    """
-    if isinstance(content, bytes):
-        content = content.decode('utf-8')
-    return hashlib.sha256(content.encode('utf-8')).hexdigest()
+GENESIS_HASH = "0" * 64
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
-def compute_content_hash(prompt: str, response: str, metadata: Optional[dict] = None) -> dict[str, str]:
-    """
-    Compute composite hash for prompt-response pair with optional metadata.
-    
-    This creates a tamper-evident seal for the entire interaction.
-    
-    Args:
-        prompt: Original or adversarial prompt text
-        response: Model response text
-        metadata: Optional additional fields to include in hash
-        
-    Returns:
-        Dictionary containing:
-        - prompt_hash: SHA-256 of prompt alone
-        - response_hash: SHA-256 of response alone
-        - interaction_hash: SHA-256 of combined interaction
-        - timestamp: UTC timestamp of hashing
-    """
-    prompt_hash = compute_sha256(prompt)
-    response_hash = compute_sha256(response)
-    
-    # Composite hash includes both plus metadata for full context
-    interaction_data = {
-        "prompt": prompt,
-        "response": response,
-        "metadata": metadata or {},
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
-    interaction_hash = compute_sha256(json.dumps(interaction_data, sort_keys=True))
-    
-    return {
-        "prompt_hash": prompt_hash,
-        "response_hash": response_hash,
-        "interaction_hash": interaction_hash,
-        "hashed_at": datetime.now(timezone.utc).isoformat()
-    }
-
+def compute_sha256(data: Union[str, bytes, dict, list]) -> str:
+    """Computes deterministic SHA-256 hash for any payload."""
+    if isinstance(data, (dict, list)):
+        payload_bytes = json.dumps(data, sort_keys=True, default=str).encode("utf-8")
+    elif isinstance(data, str):
+        payload_bytes = data.encode("utf-8")
+    elif isinstance(data, bytes):
+        payload_bytes = data
+    else:
+        payload_bytes = str(data).encode("utf-8")
+    return hashlib.sha256(payload_bytes).hexdigest()
 
 class ForensicEvidence(BaseModel):
-    """
-    Immutable forensic evidence record with chain of custody.
-    
-    This model captures all required metadata for legal/compliance use cases.
-    """
-    id: str = Field(..., description="Unique evidence identifier")
-    run_id: str = Field(..., description="Parent pipeline run ID")
-    task_id: str = Field(..., description="Task that generated this evidence")
-    
-    # Content hashes (tamper-evident)
-    prompt_hash: str = Field(..., description="SHA-256 hash of prompt")
-    response_hash: str = Field(..., description="SHA-256 hash of response")
-    interaction_hash: str = Field(..., description="SHA-256 hash of full interaction")
-    
-    # Provenance chain
-    parent_evidence_id: Optional[str] = Field(None, description="Parent evidence in refinement chain")
-    technique_id: str = Field(..., description="Attack technique used")
-    endpoint_id: str = Field(..., description="Target endpoint")
-    
-    # Temporal data
-    created_at: str = Field(..., description="UTC ISO timestamp")
-    hashed_at: str = Field(..., description="When hashing occurred")
-    
-    # Verification
-    verification_status: str = Field(default="pending", description="pending|verified|tampered")
-    verified_at: Optional[str] = Field(None, description="When verification occurred")
-    verified_by: Optional[str] = Field(None, description="Who/what verified")
-    
-    class Config:
-        frozen = True  # Immutable after creation
-
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    evaluation_id: str
+    run_id: str
+    user_id: str
+    endpoint_id: str
+    technique_id: str
+    payload_hash: str
+    adversarial_prompt_hash: str
+    target_response_hash: str
+    verdict_hash: str
+    created_at: datetime = Field(default_factory=utc_now)
 
 class AuditLogEntry(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    sequence_number: int
+    entity_type: str
+    entity_id: str
+    action: str
+    current_hash: str
+    previous_entry_hash: str
+    payload_snapshot: dict
+    timestamp: datetime = Field(default_factory=utc_now)
+
+async def _get_latest_audit_hash() -> tuple[int, str]:
+    """Retrieves the sequence number and hash of the latest audit log entry."""
+    try:
+        latest = await db.audit_log.find_one({}, sort=[("sequence_number", -1)])
+        if latest and "current_hash" in latest:
+            return int(latest.get("sequence_number", 0)), str(latest["current_hash"])
+    except Exception as e:
+        logger.warning(f"Could not retrieve latest audit log entry: {e}")
+    return 0, GENESIS_HASH
+
+async def hash_and_persist_evaluation(
+    evaluation_data: Union[dict, str],
+    user_id: str | None = None,
+    run_id: str | None = None,
+    endpoint_id: str | None = None,
+    technique_id: str | None = None,
+) -> ForensicEvidence:
     """
-    Append-only audit log entry for security events.
+    Computes cryptographic hashes for an evaluation result and creates an immutable
+    audit log entry with blockchain-style previous_entry_hash chaining.
     
-    Each entry is self-contained and can be independently verified.
+    Eliminates race condition (C-04) by accepting either the in-memory dictionary
+    directly or resolving from DB if an ID is passed.
     """
-    id: str = Field(..., description="Unique log entry ID")
-    event_type: str = Field(..., description="Type of event being logged")
-    source: str = Field(..., description="Component that generated event")
-    correlation_id: str = Field(..., description="Trace correlation ID")
-    
-    # Event data (hash only for large payloads)
-    payload_hash: Optional[str] = Field(None, description="Hash of full payload if large")
-    payload_summary: dict = Field(default_factory=dict, description="Summary of payload")
-    
-    # Temporal
-    timestamp: str = Field(..., description="UTC ISO timestamp")
-    
-    # Integrity
-    previous_entry_hash: Optional[str] = Field(None, description="Hash chain linkage")
-    entry_hash: str = Field(..., description="Self-hash for verification")
-    
-    @classmethod
-    def create(cls, event_type: str, source: str, correlation_id: str, 
-               payload: Optional[dict] = None, previous_hash: Optional[str] = None) -> 'AuditLogEntry':
-        """Factory method that computes entry hash automatically."""
-        import uuid
-        
-        entry_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
-        
-        # Compute payload hash if payload is large
-        payload_hash = None
-        payload_summary = {}
-        if payload:
-            payload_json = json.dumps(payload, sort_keys=True)
-            if len(payload_json) > 1000:
-                payload_hash = compute_sha256(payload_json)
-                payload_summary = {"size": len(payload_json), "keys": list(payload.keys())}
+    eval_dict: dict[str, Any] = {}
+    eval_id: str = ""
+
+    if isinstance(evaluation_data, dict):
+        eval_dict = evaluation_data
+        eval_id = str(eval_dict.get("id") or eval_dict.get("task_id") or uuid4())
+    elif isinstance(evaluation_data, str):
+        eval_id = evaluation_data
+        # Query DB if only an ID was provided
+        try:
+            fetched = await db.evaluation_results.find_one({"id": eval_id})
+            if fetched:
+                eval_dict = fetched
             else:
-                payload_summary = payload
-        
-        # Entry data for hashing
-        entry_data = {
-            "id": entry_id,
-            "event_type": event_type,
-            "source": source,
-            "correlation_id": correlation_id,
-            "payload_hash": payload_hash,
-            "payload_summary": payload_summary,
-            "timestamp": timestamp,
-            "previous_entry_hash": previous_hash
-        }
-        
-        entry_hash = compute_sha256(json.dumps(entry_data, sort_keys=True))
-        
-        return cls(
-            id=entry_id,
-            event_type=event_type,
-            source=source,
-            correlation_id=correlation_id,
-            payload_hash=payload_hash,
-            payload_summary=payload_summary,
-            timestamp=timestamp,
-            previous_entry_hash=previous_hash,
-            entry_hash=entry_hash
-        )
+                eval_dict = {"id": eval_id}
+        except Exception as e:
+            logger.warning(f"Failed to query evaluation result {eval_id}: {e}")
+            eval_dict = {"id": eval_id}
 
+    # Extract metadata fields with fallback resolution
+    u_id = user_id or str(eval_dict.get("user_id") or "system")
+    r_id = run_id or str(eval_dict.get("run_id") or "unspecified")
+    ep_id = endpoint_id or str(eval_dict.get("endpoint_id") or "unspecified")
+    tech_id = technique_id or str(eval_dict.get("technique_id") or eval_dict.get("attack_family") or "unspecified")
 
-async def persist_evidence(evidence: ForensicEvidence) -> bool:
-    """
-    Persist forensic evidence to database with integrity verification.
-    
-    Args:
-        evidence: ForensicEvidence object to persist
-        
-    Returns:
-        True if successfully persisted
-    """
-    from valerie.db.engine import db
-    
-    try:
-        # Insert into immutable forensic_evidence collection
-        await db.forensic_evidence.insert_one(evidence.model_dump(mode='json'))
-        logger.info(f"Persisted forensic evidence {evidence.id} with hash {evidence.interaction_hash}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to persist forensic evidence: {e}")
-        return False
-
-
-async def persist_audit_entry(entry: AuditLogEntry) -> bool:
-    """
-    Append audit log entry to immutable audit trail.
-    
-    Args:
-        entry: AuditLogEntry to append
-        
-    Returns:
-        True if successfully appended
-    """
-    from valerie.db.engine import db
-    
-    try:
-        await db.audit_log.insert_one(entry.model_dump(mode='json'))
-        logger.debug(f"Appended audit log entry {entry.id}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to append audit log entry: {e}")
-        return False
-
-
-async def verify_evidence_integrity(evidence_id: str) -> dict[str, Any]:
-    """
-    Verify integrity of stored evidence by recomputing hashes.
-    
-    Args:
-        evidence_id: ID of evidence to verify
-        
-    Returns:
-        Verification result with status and details
-    """
-    from valerie.db.engine import db
-    
-    evidence_doc = await db.forensic_evidence.find_one({"id": evidence_id})
-    if not evidence_doc:
-        return {"status": "not_found", "error": "Evidence not found"}
-    
-    # Retrieve original content from evaluation_results
-    eval_doc = await db.evaluation_results.find_one({"task_id": evidence_doc["task_id"]})
-    if not eval_doc:
-        return {"status": "orphaned", "error": "Source evaluation not found"}
-    
-    # Recompute hashes
-    computed_hashes = compute_content_hash(
-        prompt=eval_doc.get("adversarial_prompt", ""),
-        response=eval_doc.get("target_response", ""),
-        metadata={"run_id": eval_doc.get("run_id")}
-    )
-    
-    # Compare hashes
-    if (computed_hashes["prompt_hash"] != evidence_doc["prompt_hash"] or
-        computed_hashes["response_hash"] != evidence_doc["response_hash"] or
-        computed_hashes["interaction_hash"] != evidence_doc["interaction_hash"]):
-        return {
-            "status": "tampered",
-            "error": "Hash mismatch detected - evidence may have been modified",
-            "expected": evidence_doc,
-            "computed": computed_hashes
-        }
-    
-    return {
-        "status": "verified",
-        "evidence_id": evidence_id,
-        "verified_at": datetime.now(timezone.utc).isoformat()
+    adv_prompt = str(eval_dict.get("adversarial_prompt") or "")
+    target_resp = str(eval_dict.get("target_response") or "")
+    verdict = {
+        "overall_risk_score": eval_dict.get("overall_risk_score", 0.0),
+        "is_breakthrough": eval_dict.get("is_breakthrough", False),
+        "pii_leakage": eval_dict.get("pii_leakage", False),
+        "bias": eval_dict.get("bias", "none"),
+        "toxicity": eval_dict.get("toxicity", False),
+        "safety_concern": eval_dict.get("safety_concern", ""),
     }
 
+    adv_hash = compute_sha256(adv_prompt)
+    resp_hash = compute_sha256(target_resp)
+    verdict_hash = compute_sha256(verdict)
+    payload_hash = compute_sha256({
+        "evaluation_id": eval_id,
+        "run_id": r_id,
+        "adversarial_prompt_hash": adv_hash,
+        "target_response_hash": resp_hash,
+        "verdict_hash": verdict_hash,
+    })
 
-async def get_chain_of_custody(run_id: str) -> list[dict]:
-    """
-    Retrieve complete chain of custody for a pipeline run.
-    
-    Returns all forensic evidence linked to the run with provenance chains.
-    
-    Args:
-        run_id: Pipeline run ID
-        
-    Returns:
-        List of evidence records sorted by creation time
-    """
-    from valerie.db.engine import db
-    
-    cursor = db.forensic_evidence.find(
-        {"run_id": run_id},
-        sort=[("created_at", 1)]
-    )
-    
-    return await cursor.to_list(length=None)
-
-
-# Convenience function for hashing during evaluation
-async def hash_and_persist_evaluation(run_id: str, task_id: str, 
-                                       prompt: str, response: str,
-                                       parent_evidence_id: Optional[str] = None) -> Optional[ForensicEvidence]:
-    """
-    Complete workflow: hash evaluation content and persist forensic record.
-    
-    This is the primary integration point for the evaluation pipeline.
-    
-    Args:
-        run_id: Parent pipeline run
-        task_id: Task that generated this evaluation
-        prompt: Adversarial prompt text
-        response: Target model response
-        parent_evidence_id: Optional parent for refinement chains
-        
-    Returns:
-        ForensicEvidence object if successful, None on failure
-    """
-    from valerie.db.engine import db
-    import uuid
-    
-    # Compute hashes
-    hashes = compute_content_hash(prompt, response, {"run_id": run_id})
-    
-    # Get technique and endpoint info for provenance
-    eval_doc = await db.evaluation_results.find_one({"run_id": run_id, "task_id": task_id})
-    if not eval_doc:
-        logger.warning(f"Cannot create forensic evidence: evaluation not found for {task_id}")
-        return None
-    
     evidence = ForensicEvidence(
-        id=str(uuid.uuid4()),
-        run_id=run_id,
-        task_id=task_id,
-        prompt_hash=hashes["prompt_hash"],
-        response_hash=hashes["response_hash"],
-        interaction_hash=hashes["interaction_hash"],
-        parent_evidence_id=parent_evidence_id,
-        technique_id=eval_doc.get("technique_id", "unknown"),
-        endpoint_id=eval_doc.get("endpoint_id", "unknown"),
-        created_at=datetime.now(timezone.utc).isoformat(),
-        hashed_at=hashes["hashed_at"]
+        evaluation_id=eval_id,
+        run_id=r_id,
+        user_id=u_id,
+        endpoint_id=ep_id,
+        technique_id=tech_id,
+        payload_hash=payload_hash,
+        adversarial_prompt_hash=adv_hash,
+        target_response_hash=resp_hash,
+        verdict_hash=verdict_hash,
+        created_at=utc_now(),
     )
-    
-    success = await persist_evidence(evidence)
-    if not success:
-        return None
-    
-    # Log to audit trail
-    audit_entry = AuditLogEntry.create(
-        event_type="evidence.created",
-        source="forensics.hash_and_persist",
-        correlation_id=run_id,
-        payload={"evidence_id": evidence.id, "task_id": task_id},
-        previous_hash=None  # Could chain from previous entry
+
+    # Persist evidence record
+    try:
+        await db.forensic_evidence.insert_one(evidence.model_dump(mode="json"))
+    except Exception as e:
+        logger.error(f"Failed to persist forensic evidence for eval {eval_id}: {e}")
+
+    # Create chained audit log entry (H-09)
+    last_seq, prev_hash = await _get_latest_audit_hash()
+    new_seq = last_seq + 1
+
+    audit_payload = {
+        "sequence_number": new_seq,
+        "entity_type": "evaluation_result",
+        "entity_id": eval_id,
+        "action": "EVALUATION_RECORDED",
+        "previous_entry_hash": prev_hash,
+        "evidence_id": evidence.id,
+        "payload_hash": payload_hash,
+    }
+    current_entry_hash = compute_sha256(audit_payload)
+
+    audit_entry = AuditLogEntry(
+        sequence_number=new_seq,
+        entity_type="evaluation_result",
+        entity_id=eval_id,
+        action="EVALUATION_RECORDED",
+        current_hash=current_entry_hash,
+        previous_entry_hash=prev_hash,
+        payload_snapshot=audit_payload,
+        timestamp=utc_now(),
     )
-    await persist_audit_entry(audit_entry)
-    
+
+    try:
+        await db.audit_log.insert_one(audit_entry.model_dump(mode="json"))
+    except Exception as e:
+        logger.error(f"Failed to persist chained audit log entry: {e}")
+
+    # Emit telemetry event
+    try:
+        await publisher.publish(Event(
+            type="forensic.evidence_created",
+            source="forensics.evidence",
+            correlation_id=r_id,
+            payload={
+                "evidence_id": evidence.id,
+                "evaluation_id": eval_id,
+                "sequence_number": new_seq,
+                "payload_hash": payload_hash,
+                "current_hash": current_entry_hash,
+            }
+        ))
+    except Exception as e:
+        logger.debug(f"Event emission for forensic evidence skipped: {e}")
+
     return evidence
+
+async def verify_audit_log_chain(limit: int = 1000) -> dict[str, Any]:
+    """
+    Verifies cryptographic integrity of the audit log chain.
+    Ensures no entries have been deleted, inserted, or modified.
+    """
+    cursor = db.audit_log.find({}).sort("sequence_number", 1).limit(limit)
+    entries = await cursor.to_list(length=limit)
+
+    if not entries:
+        return {"valid": True, "total_verified": 0, "status": "empty_log"}
+
+    prev_hash = GENESIS_HASH
+    for idx, entry in enumerate(entries):
+        expected_prev = entry.get("previous_entry_hash")
+        if expected_prev != prev_hash:
+            return {
+                "valid": False,
+                "broken_at_sequence": entry.get("sequence_number"),
+                "reason": f"Hash chain break: expected prev {prev_hash}, found {expected_prev}",
+            }
+        
+        # Verify current_hash matches payload
+        payload = entry.get("payload_snapshot", {})
+        recomputed_hash = compute_sha256(payload)
+        if recomputed_hash != entry.get("current_hash"):
+            return {
+                "valid": False,
+                "broken_at_sequence": entry.get("sequence_number"),
+                "reason": "Tampered entry: payload does not match current_hash",
+            }
+        prev_hash = str(entry.get("current_hash"))
+
+    return {
+        "valid": True,
+        "total_verified": len(entries),
+        "latest_sequence": entries[-1].get("sequence_number") if entries else 0,
+        "status": "verified_intact"
+    }

@@ -1,98 +1,43 @@
-import hashlib
+import os
 import json
 import logging
 import asyncio
-from datetime import datetime
-from typing import TypedDict, Any, Optional
+import re
+import uuid
+from pathlib import Path
+from datetime import datetime, timezone, UTC
+import httpx
+import pandas as pd
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from langgraph.types import Send
+
 from valerie.llm.router import call_llm
 from valerie.db.engine import db
+from valerie.db.models import JudgeVerdictPayload
 from valerie.core.events import Event, publisher
-from pydantic import BaseModel
+from valerie.forensics.evidence import hash_and_persist_evaluation
+from valerie.agents.prompts import HUMAN_PROMPT, build_attacker_system_prompt
 
 logger = logging.getLogger("graph.nodes")
 
-class EvaluationResult(BaseModel):
-    """Canonical evaluation result model - single source of truth (H-01)."""
-    pii_leakage: bool = False
-    pii_examples: list[str] = []
-    bias: str = "none"
-    bias_examples: list[str] = []
-    toxicity: bool = False
-    toxicity_severity: str = "none"
-    safety_concern: str = ""
-    overall_risk_score: float = 0.0
-    novelty: float = 0.0
-    diversity: float = 0.0
-    realism: float = 0.0
-    transferability: float = 0.0
-    semantic_quality: float = 0.0
-    parsing_confidence: float = 1.0  # Track confidence for low-confidence flagging (C-07)
-
-
-class PipelineState(TypedDict, total=False):
-    """Type-safe state dictionary for pipeline execution (H-10)."""
-    run_id: str
-    user_id: str
-    endpoint_id: str
-    domain: str
-    harm_types: list[str]
-    selected_techniques: list[str]
-    attacker_model: str
-    judge_model: str
-    attacker_api_key: Optional[str]
-    judge_api_key: Optional[str]
-    max_iterations: int
-    risk_threshold: float
-    domain_prompts: list[dict[str, Any]]
-    endpoint_doc: Optional[dict[str, Any]]
-    current_task: dict[str, Any]
-    results: list[dict[str, Any]]
-
 def extract_json(response_text: str) -> dict:
-    """
-    Extract JSON from LLM response with confidence tracking (C-07).
-    
-    Returns dict with parsing_confidence field indicating reliability.
-    Low confidence (< 0.5) indicates results should be flagged for review.
-    """
-    import re
-    
-    # Track parsing confidence based on extraction method used
-    confidence = 1.0
-    
     try:
-        # Try markdown code block format first (highest confidence)
         json_pattern = re.compile(r'```(?:json)?\s*(\{.*?\})\s*```', re.DOTALL)
         match = json_pattern.search(response_text)
         if match:
             parsed = json.loads(match.group(1))
-            confidence = 1.0  # Clean structured output
         else:
-            # Fall back to brute force extraction (lower confidence)
             start = response_text.find('{')
             end = response_text.rfind('}')
-            if start != -1 and end != -1 and start < end:
+            if start != -1 and end != -1:
                 parsed = json.loads(response_text[start:end+1])
-                confidence = 0.7  # Some surrounding text present
             else:
-                # Last resort: try parsing entire response
                 parsed = json.loads(response_text)
-                confidence = 0.5  # Risky parse
-        
-        eval_result = EvaluationResult(**parsed, parsing_confidence=confidence)
+        eval_result = JudgeVerdictPayload(**parsed)
         return eval_result.model_dump()
-        
     except Exception as e:
-        logger.warning(
-            f"Failed to parse JSON from LLM judge response: {e}. "
-            f"Raw response (truncated): {response_text[:150]}..."
-        )
-        # Return default with low confidence flag
-        return EvaluationResult(
-            safety_concern=f"Failed to parse judge JSON: {str(e)[:100]}",
-            parsing_confidence=0.0  # Zero confidence - must be reviewed
-        ).model_dump()
+        logger.warning(f"Failed to parse JSON from LLM judge response: {e}. Raw response: {response_text[:150]}")
+        return JudgeVerdictPayload(safety_concern=f"Failed to parse judge JSON: {str(e)[:100]}").model_dump()
 
 DOMAIN_FILES = {
     "general": "baseline_prompts.csv",
@@ -104,19 +49,28 @@ DOMAIN_FILES = {
     "ecommerce": "ecommerce_prompts.csv"
 }
 
+def resolve_resource_path(filename: str) -> Path:
+    """Finds resource file reliably across local, containerized, and test environments."""
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
+    candidate = project_root / "resources" / filename
+    if candidate.exists():
+        return candidate
+    cwd_candidate = Path("resources") / filename
+    if cwd_candidate.exists():
+        return cwd_candidate
+    return candidate
+
 async def load_domain_prompts(state: dict) -> dict:
-    import pandas as pd
-    
     domain_file = DOMAIN_FILES.get(state["domain"])
     if not domain_file:
         raise ValueError(f"Unknown domain: {state['domain']}. Supported domains: {list(DOMAIN_FILES.keys())}")
 
-    filepath = os.path.join("resources", domain_file)
-    if not os.path.exists(filepath):
+    filepath = resolve_resource_path(domain_file)
+    if not filepath.exists():
         raise FileNotFoundError(f"Domain CSV resource file missing: '{filepath}'")
 
     def _read_csv():
-        df = pd.read_csv(filepath)
+        df = pd.read_csv(str(filepath))
         if "harm_type" not in df.columns:
             return df.to_dict("records")
         if state.get("harm_types"):
@@ -125,7 +79,6 @@ async def load_domain_prompts(state: dict) -> dict:
         
     records = await asyncio.to_thread(_read_csv)
 
-    # Hoist Endpoint lookup once to state to avoid N redundant DB reads in attack_worker (B-21)
     endpoint = await db.endpoints.find_one({"id": state["endpoint_id"]})
     if not endpoint:
         raise ValueError(f"Endpoint '{state['endpoint_id']}' not found.")
@@ -141,7 +94,6 @@ async def load_domain_prompts(state: dict) -> dict:
     return {"domain_prompts": records, "endpoint_doc": endpoint}
 
 def dispatch_attacks(state: dict) -> list[Send]:
-    import uuid
     return [
         Send("attack_worker", {
             **state,
@@ -181,7 +133,7 @@ async def attack_worker(state: dict) -> dict:
     experiences = await cursor.to_list(length=3)
     memory_context = "\n".join([f"- Previous success: {e['successful_pattern']} (Score: {e['score']})" for e in experiences if e.get('successful_pattern')])
     
-    # 1.5 Target Endpoint (use preloaded endpoint from state if available) (B-21)
+    # 1.5 Target Endpoint
     endpoint = state.get("endpoint_doc")
     if not endpoint:
         endpoint = await db.endpoints.find_one({"id": state["endpoint_id"]})
@@ -212,15 +164,16 @@ async def attack_worker(state: dict) -> dict:
         for i in range(state["max_iterations"]):
             iterations_used = i + 1
             
-            # 2. Generator / Mutator
-            from valerie.agents.prompts import HUMAN_PROMPT, build_attacker_system_prompt
+            # Rate limiting backoff between iterations (H-08)
+            if i > 0:
+                await asyncio.sleep(0.5)
             
+            # 2. Generator / Mutator
             attacker_sys = build_attacker_system_prompt(task["attack_family"])
             attacker_sys += f"\n\nTarget Domain: {task['domain'].upper()}\nHarm Category: {task['harm_type']}\n"
             if memory_context:
                 attacker_sys += f"\nPast Successful Breakthrough Patterns:\n{memory_context}"
                 
-            # Inject the original seed prompt into the hardcore Pliny jailbreak template
             base_prompt = task['original_prompt']
             if i > 0:
                 base_prompt = f"{base_prompt} (Previous attempt scored {prev_score}. Mutate to increase diversity and realism.)"
@@ -246,9 +199,7 @@ async def attack_worker(state: dict) -> dict:
                 response_format={"type": "json_object"},
             )
             
-            # The attacker responds with a JSON object containing fake_refusal and adversarial_prompt
             try:
-                import json, re
                 cleaned_json = re.sub(r'```json\s*(.*?)\s*```', r'\1', adversarial_prompt_raw, flags=re.DOTALL).strip()
                 parsed_response = json.loads(cleaned_json)
                 adversarial_prompt = parsed_response.get("adversarial_prompt", adversarial_prompt_raw)
@@ -277,10 +228,9 @@ async def attack_worker(state: dict) -> dict:
                 payload={"task_id": task["task_id"], "iteration": i, "adversarial_prompt": adversarial_prompt, "endpoint_id": state["endpoint_id"]}
             ))
             
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
             if custom_template:
-                import httpx
-                payload_str = json.dumps(custom_template) if isinstance(custom_template, dict) else custom_template
+                payload_str = json.dumps(custom_template) if isinstance(custom_template, dict) else str(custom_template)
                 escaped_prompt = json.dumps(adversarial_prompt)[1:-1]
                 payload_str = payload_str.replace("{{prompt}}", escaped_prompt)
                 
@@ -310,7 +260,7 @@ async def attack_worker(state: dict) -> dict:
                     api_base=target_api_base,
                     timeout=45,
                 )
-            latency_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
+            latency_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             
             await publisher.publish(Event(
                 type="response.received",
@@ -367,7 +317,7 @@ async def attack_worker(state: dict) -> dict:
             if is_breakthrough:
                 break
 
-    # Overall task timeout guard (B-18): max 300 seconds (5 minutes) per task
+    # Overall task timeout guard: max 300 seconds (5 minutes) per task
     try:
         await asyncio.wait_for(_execute_attack_loop(), timeout=300.0)
     except asyncio.TimeoutError:
@@ -415,164 +365,72 @@ async def attack_worker(state: dict) -> dict:
 
 
 async def aggregate_and_persist(state: dict) -> dict:
-    """
-    Persist evaluation results and update pipeline run status atomically.
-    
-    CRITICAL: This function ensures data integrity by:
-    1. Attempting atomic transactions on replica sets
-    2. On failure, persisting results FIRST before updating run status
-    3. Never marking a run as completed without successfully persisting results
-    4. Using retry logic with exponential backoff for transient failures
-    """
-    import uuid
-    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-    
     results = state.get("results", [])
-    if not results:
-        logger.warning(f"Run {state.get('run_id')}: No results to persist")
-        return {}
+    if not results: return {}
     
     successful = sum(1 for r in results if r["is_breakthrough"])
     avg_score = sum(r["overall_risk_score"] for r in results) / max(1, len(results))
     
     run_id = state.get("run_id")
     user_id = state.get("user_id")
-    
-    # Prepare evaluation documents with unique IDs
+    endpoint_id = state.get("endpoint_id")
     eval_docs = []
     for r in results:
         eval_docs.append({
             "id": str(uuid.uuid4()),
             "user_id": user_id,
             "run_id": run_id,
-            "task_id": r.get("task_id"),
-            "original_prompt": r.get("original_prompt"),
-            "harm_type": r.get("harm_type"),
-            "technique_id": r.get("attack_family"),
-            "adversarial_prompt": r.get("adversarial_prompt"),
-            "target_response": r.get("target_response"),
-            "iterations_used": r.get("iterations_used", 0),
-            "is_breakthrough": r.get("is_breakthrough", False),
-            "pii_leakage": r.get("pii_leakage", False),
-            "pii_examples": r.get("pii_examples", []),
-            "bias": r.get("bias", "none"),
-            "bias_examples": r.get("bias_examples", []),
-            "toxicity": r.get("toxicity", False),
-            "toxicity_severity": r.get("toxicity_severity", "none"),
-            "safety_concern": r.get("safety_concern", ""),
-            "overall_risk_score": r.get("overall_risk_score", 0.0),
-            "novelty": r.get("novelty", 0.0),
-            "diversity": r.get("diversity", 0.0),
-            "realism": r.get("realism", 0.0),
-            "transferability": r.get("transferability", 0.0),
-            "semantic_quality": r.get("semantic_quality", 0.0),
+            **r
         })
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=5),
-        retry=retry_if_exception_type(Exception)
-    )
-    async def _persist_with_retry():
-        """Persist results with retry logic for transient failures."""
-        # Try atomic transaction first (works on replica sets)
-        try:
-            async with await db.client.start_session() as session:
-                async with session.start_transaction():
-                    if eval_docs:
-                        await db.evaluation_results.insert_many(eval_docs, session=session)
-                    await db.pipeline_runs.update_one(
-                        {"id": run_id},
-                        {"$set": {
-                            "status": "completed",
-                            "total_tasks": len(results),
-                            "successful_attacks": successful,
-                            "avg_risk_score": avg_score,
-                            "completed_at": datetime.utcnow()
-                        }},
-                        session=session
-                    )
-                    return True
-        except Exception as e:
-            error_msg = str(e).lower()
-            # Check if this is a "transactions not supported" error (standalone mongo)
-            if "transaction" in error_msg or "replica set" in error_msg.lower():
-                # Fall through to non-transactional path
-                pass
-            else:
-                # Re-raise for retry on transient errors
-                raise
-        
-        # Non-transactional path for standalone MongoDB
-        # CRITICAL: Insert results FIRST, then update status
-        # This ensures we never mark a run as completed without its results
-        try:
-            if eval_docs:
-                insert_result = await db.evaluation_results.insert_many(eval_docs, ordered=True)
-                if len(insert_result.inserted_ids) != len(eval_docs):
-                    raise Exception(
-                        f"Partial insert: {len(insert_result.inserted_ids)}/{len(eval_docs)} "
-                        "evaluation results persisted"
-                    )
-                logger.info(f"Persisted {len(insert_result.inserted_ids)} evaluation results for run {run_id}")
-            
-            # Only after successful result insertion, update run status
-            update_result = await db.pipeline_runs.update_one(
-                {"id": run_id},
-                {"$set": {
-                    "status": "completed",
-                    "total_tasks": len(results),
-                    "successful_attacks": successful,
-                    "avg_risk_score": avg_score,
-                    "completed_at": datetime.utcnow()
-                }}
-            )
-            
-            if update_result.modified_count == 0:
-                logger.warning(f"Run {run_id}: Pipeline run document not found or already completed")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to persist results for run {run_id}: {e}")
-            # Mark run as failed if we can't persist results
-            await db.pipeline_runs.update_one(
-                {"id": run_id},
-                {"$set": {
-                    "status": "failed",
-                    "error_message": f"Result persistence failed: {str(e)[:500]}"
-                }}
-            )
-            raise  # Re-raise to trigger retry
-    
-    # Execute persistence with retry
+    # Atomic transaction attempt for MongoDB replica sets / clusters, with fallback
     try:
-        await _persist_with_retry()
+        async with await db.client.start_session() as session:
+            async with session.start_transaction():
+                if eval_docs:
+                    await db.evaluation_results.insert_many(eval_docs, session=session)
+                await db.pipeline_runs.update_one(
+                    {"id": state["run_id"]},
+                    {"$set": {
+                        "status": "completed",
+                        "total_tasks": len(results),
+                        "successful_attacks": successful,
+                        "avg_risk_score": avg_score
+                    }},
+                    session=session
+                )
     except Exception as e:
-        logger.error(f"Failed to persist run {run_id} after retries: {e}")
-        # Final fallback: at least mark the run as failed
-        try:
-            await db.pipeline_runs.update_one(
-                {"id": run_id},
-                {"$set": {
-                    "status": "failed",
-                    "error_message": f"Final persistence failure: {str(e)[:500]}"
-                }}
-            )
-        except Exception:
-            pass  # Can't do anything more
+        logger.warning(f"Session transaction not supported on standalone Mongo instance ({e}), using direct update fallback.")
+        if eval_docs:
+            await db.evaluation_results.insert_many(eval_docs)
+        await db.pipeline_runs.update_one(
+            {"id": state["run_id"]},
+            {"$set": {
+                "status": "completed",
+                "total_tasks": len(results),
+                "successful_attacks": successful,
+                "avg_risk_score": avg_score
+            }}
+        )
     
+    # Asynchronously persist forensic evidence hashes and blockchain audit log chain (C-04, H-09)
+    for doc in eval_docs:
+        try:
+            await hash_and_persist_evaluation(
+                evaluation_data=doc,
+                user_id=user_id,
+                run_id=run_id,
+                endpoint_id=endpoint_id,
+                technique_id=doc.get("attack_family")
+            )
+        except Exception as e:
+            logger.error(f"Failed to record forensic evidence for eval {doc.get('id')}: {e}")
+
     await publisher.publish(Event(
         type="run.completed",
         source="execution.aggregate",
-        correlation_id=run_id,
-        payload={
-            "run_id": run_id,
-            "total_tasks": len(results),
-            "successful_attacks": successful,
-            "avg_risk_score": avg_score
-        }
+        correlation_id=state["run_id"],
+        payload={"run_id": state["run_id"], "total_tasks": len(results), "successful_attacks": successful, "avg_risk_score": avg_score}
     ))
     
     return {}
-

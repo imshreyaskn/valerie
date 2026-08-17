@@ -21,9 +21,11 @@ async def run_prompt_clustering():
     
     valid_prompts = []
     for p in prompts:
-        emb = np.array(p["embedding"])
-        if np.any(emb): # Skip zero-vectors (fallback from failed LLM calls)
-            valid_prompts.append(p)
+        emb_raw = p.get("embedding")
+        if emb_raw and len(emb_raw) > 0:
+            emb = np.array(emb_raw)
+            if np.any(emb): # Skip zero-vectors
+                valid_prompts.append(p)
             
     if len(valid_prompts) < 10:
         logger.info("Not enough valid prompts for meaningful clustering. Skipping.")

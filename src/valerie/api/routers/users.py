@@ -29,7 +29,7 @@ async def register(req: AuthRequest):
     })
     
     token = create_access_token({"sub": uid})
-    return {"token": token, "uid": uid, "email": req.email}
+    return {"token": token, "access_token": token, "uid": uid, "email": req.email}
 
 @router.post("/login")
 async def login(req: AuthRequest):
@@ -41,7 +41,7 @@ async def login(req: AuthRequest):
         raise HTTPException(401, "Invalid email or password")
         
     token = create_access_token({"sub": user["uid"]})
-    return {"token": token, "uid": user["uid"], "email": req.email}
+    return {"token": token, "access_token": token, "uid": user["uid"], "email": req.email}
 
 @router.get("/me")
 async def get_me(user=Depends(require_api_key)):

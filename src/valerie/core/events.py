@@ -47,10 +47,10 @@ class EventPublisher:
         event_dict = event.model_dump(mode="json")
         
         # Redis streams require dict values to be strings or bytes
-        # We serialize the entire event to a JSON string and store it under the 'data' key
         stream_payload = {"data": json.dumps(event_dict)}
         
         # Add to stream
+        assert self._redis is not None
         message_id = await self._redis.xadd(self.stream_name, stream_payload)  # type: ignore
         
         logger.debug(f"Published event {event.type} to {self.stream_name} (msg_id: {message_id})")
@@ -63,7 +63,7 @@ class EventPublisher:
 
 class EventSubscriber:
     """
-    Subscribes to events from Redis Streams.
+    Subscribes to events from Redis Streams with at-least-once processing guarantees.
     """
     def __init__(self, stream_name: str = "valerie:events"):
         self.stream_name = stream_name
@@ -72,6 +72,16 @@ class EventSubscriber:
     async def connect(self):
         if self._redis is None:
             self._redis = redis.from_url(settings.redis.url, decode_responses=True)
+
+    async def ack(self, group_name: str, msg_id: str):
+        """Acknowledge message processing completion in consumer group."""
+        if not self._redis:
+            await self.connect()
+        assert self._redis is not None
+        try:
+            await self._redis.xack(self.stream_name, group_name, msg_id)
+        except Exception as e:
+            logger.warning(f"Failed to ack message {msg_id} in {group_name}: {e}")
 
     async def subscribe(self, last_id: str = "$"):
         """Pub/Sub style subscription (fire-and-forget for new events)"""
@@ -92,7 +102,7 @@ class EventSubscriber:
                         event_dict = json.loads(msg_data["data"])
                         yield current_id, Event(**event_dict)
 
-    async def subscribe_group(self, group_name: str, consumer_name: str):
+    async def subscribe_group(self, group_name: str, consumer_name: str, auto_ack: bool = True):
         """Reliable queue subscription using Redis Consumer Groups."""
         if not self._redis:
             await self.connect()
@@ -117,8 +127,8 @@ class EventSubscriber:
                     if "data" in msg_data:
                         event_dict = json.loads(msg_data["data"])
                         yield msg_id, Event(**event_dict)
-                    await self._redis.xack(self.stream_name, group_name, msg_id)
-
+                    if auto_ack and self._redis:
+                        await self._redis.xack(self.stream_name, group_name, msg_id)
 
     async def close(self):
         if self._redis is not None:
@@ -127,4 +137,3 @@ class EventSubscriber:
 
 # Global instance
 publisher = EventPublisher()
-# Consumers must instantiate their own EventSubscriber to maintain independent cursors.

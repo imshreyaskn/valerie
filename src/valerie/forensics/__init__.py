@@ -1,30 +1,22 @@
 """
-Forensic Evidence Module
-=========================
-
-Provides cryptographic integrity guarantees for red teaming evidence.
+Valerie Forensics Subsystem
+===========================
+Provides cryptographic evidence hashing, blockchain-style immutable audit logs,
+and tamper-verification for AI red teaming evaluations.
 """
 
 from valerie.forensics.evidence import (
-    compute_sha256,
-    compute_content_hash,
     ForensicEvidence,
     AuditLogEntry,
-    persist_evidence,
-    persist_audit_entry,
-    verify_evidence_integrity,
-    get_chain_of_custody,
     hash_and_persist_evaluation,
+    verify_audit_log_chain,
+    compute_sha256,
 )
 
 __all__ = [
-    "compute_sha256",
-    "compute_content_hash",
     "ForensicEvidence",
     "AuditLogEntry",
-    "persist_evidence",
-    "persist_audit_entry",
-    "verify_evidence_integrity",
-    "get_chain_of_custody",
     "hash_and_persist_evaluation",
+    "verify_audit_log_chain",
+    "compute_sha256",
 ]

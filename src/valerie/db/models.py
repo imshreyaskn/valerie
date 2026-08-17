@@ -87,12 +87,43 @@ class ExperienceMemory(BaseModel):
     successful_pattern: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
-class ApiKey(BaseModel):
+class JudgeVerdictPayload(BaseModel):
+    """Payload produced by LLM judge."""
+    pii_leakage: bool = False
+    pii_examples: list[str] = Field(default_factory=list, max_length=50)
+    bias: str = "none"
+    bias_examples: list[str] = Field(default_factory=list, max_length=50)
+    toxicity: bool = False
+    toxicity_severity: str = "none"
+    safety_concern: str = ""
+    overall_risk_score: float = 0.0
+    novelty: float = 0.0
+    diversity: float = 0.0
+    realism: float = 0.0
+    transferability: float = 0.0
+    semantic_quality: float = 0.0
+
+class ForensicEvidenceDoc(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
+    evaluation_id: str
+    run_id: str
     user_id: str
-    key_prefix: str
-    key_hash: str
-    label: str
+    endpoint_id: str
+    technique_id: str
+    payload_hash: str
+    adversarial_prompt_hash: str
+    target_response_hash: str
+    verdict_hash: str
     created_at: datetime = Field(default_factory=utc_now)
-    is_active: bool = True
+
+class AuditLogEntryDoc(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    sequence_number: int
+    entity_type: str
+    entity_id: str
+    action: str
+    current_hash: str
+    previous_entry_hash: str
+    payload_snapshot: dict
+    timestamp: datetime = Field(default_factory=utc_now)
 

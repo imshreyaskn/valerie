@@ -1,4 +1,4 @@
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, NotRequired, Any
 import operator
 
 class AttackTask(TypedDict):
@@ -18,9 +18,9 @@ class AttackResult(TypedDict):
     iterations_used: int
     is_breakthrough: bool
     pii_leakage: bool
-    pii_examples: list
+    pii_examples: list[str]
     bias: str
-    bias_examples: list
+    bias_examples: list[str]
     toxicity: bool
     toxicity_severity: str
     safety_concern: str
@@ -37,7 +37,7 @@ class PipelineState(TypedDict):
     endpoint_id: str
     domain: str
     harm_types: list[str]
-    selected_techniques: list[str]  # now maps to attack_families
+    selected_techniques: list[str]
     judge_model: str
     judge_api_key: str | None
     attacker_model: str
@@ -46,6 +46,7 @@ class PipelineState(TypedDict):
     risk_threshold: float
     max_concurrency: int
 
-    domain_prompts: list[dict]
-    attack_tasks: list[AttackTask]
+    domain_prompts: NotRequired[list[dict[str, Any]]]
+    endpoint_doc: NotRequired[dict[str, Any] | None]
+    current_task: NotRequired[AttackTask]
     results: Annotated[list[AttackResult], operator.add]

@@ -2,7 +2,7 @@ import time
 import socket
 import ipaddress
 from urllib.parse import urlparse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from valerie.llm.router import call_llm
 
 class ValidationResult(BaseModel):
@@ -11,10 +11,25 @@ class ValidationResult(BaseModel):
     response_preview: str | None = None
     error: str | None = None
 
+FORBIDDEN_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),       # Loopback IPv4
+    ipaddress.ip_network("10.0.0.0/8"),        # Private Class A
+    ipaddress.ip_network("172.16.0.0/12"),     # Private Class B
+    ipaddress.ip_network("192.168.0.0/16"),    # Private Class C
+    ipaddress.ip_network("169.254.0.0/16"),    # Link-local & Cloud Metadata (169.254.169.254)
+    ipaddress.ip_network("100.64.0.0/10"),     # Carrier Grade NAT (CGNAT)
+    ipaddress.ip_network("0.0.0.0/8"),         # Broadcast / Current network
+    ipaddress.ip_network("224.0.0.0/4"),       # Multicast
+    ipaddress.ip_network("240.0.0.0/4"),       # Reserved
+    ipaddress.ip_network("::1/128"),           # Loopback IPv6
+    ipaddress.ip_network("fc00::/7"),          # Unique Local IPv6
+    ipaddress.ip_network("fe80::/10"),         # Link-local IPv6
+]
+
 def is_safe_url(url_str: str) -> tuple[bool, str]:
     """
-    Validate URL to prevent Server-Side Request Forgery (SSRF).
-    Rejects non-HTTP/HTTPS schemes and private/loopback/link-local IP destinations.
+    Validate URL to prevent Server-Side Request Forgery (SSRF) and DNS Rebinding (H-04).
+    Resolves all A and AAAA DNS records and verifies none map to internal or metadata ranges.
     """
     try:
         parsed = urlparse(url_str)
@@ -25,21 +40,34 @@ def is_safe_url(url_str: str) -> tuple[bool, str]:
         if not hostname:
             return False, "Invalid URL: missing hostname"
 
-        # Resolve hostname to IP address
+        # Check if hostname is direct IP literal
         try:
-            ip_str = socket.gethostbyname(hostname)
-            ip = ipaddress.ip_address(ip_str)
-        except socket.gaierror:
-            return False, f"Could not resolve hostname '{hostname}'"
+            ip = ipaddress.ip_address(hostname)
+            resolved_ips = [ip]
+        except ValueError:
+            # Resolve ALL DNS records (A and AAAA) to counter DNS rebinding
+            try:
+                addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                resolved_ips = [ipaddress.ip_address(addr[4][0]) for addr in addr_info]
+            except socket.gaierror:
+                return False, f"Could not resolve hostname '{hostname}'"
 
-        if ip.is_loopback:
-            return False, "Access to loopback IP addresses is forbidden (SSRF protection)"
-        if ip.is_private:
-            return False, "Access to private network IP addresses is forbidden (SSRF protection)"
-        if ip.is_link_local:
-            return False, "Access to link-local IP addresses is forbidden (SSRF protection)"
-        if ip.is_multicast or ip.is_reserved or ip.is_unspecified:
-            return False, "Access to reserved/multicast IP addresses is forbidden"
+        if not resolved_ips:
+            return False, f"Hostname '{hostname}' resolved to no IP addresses."
+
+        for ip in resolved_ips:
+            if ip.is_loopback:
+                return False, "Access to loopback IP addresses is forbidden (SSRF protection)"
+            if ip.is_private:
+                return False, "Access to private network IP addresses is forbidden (SSRF protection)"
+            if ip.is_link_local:
+                return False, "Access to link-local / cloud metadata IP addresses is forbidden (SSRF protection)"
+            if ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+                return False, "Access to reserved/multicast IP addresses is forbidden"
+            
+            for forbidden_net in FORBIDDEN_NETWORKS:
+                if ip in forbidden_net:
+                    return False, f"Destination IP {ip} belongs to restricted subnet {forbidden_net}"
 
         return True, ""
     except Exception as e:
@@ -71,4 +99,3 @@ async def validate_endpoint(
         return ValidationResult(is_valid=True, latency_ms=latency, response_preview=response[:200])
     except Exception as e:
         return ValidationResult(is_valid=False, error=str(e)[:300])
-

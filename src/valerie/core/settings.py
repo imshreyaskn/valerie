@@ -292,27 +292,21 @@ class Settings(BaseSettings):
         return self.environment == "development"
 
 
-# Global Configuration Instance
-# This is loaded ONCE at module import
+class ConfigurationError(ValueError):
+    """Raised when configuration validation fails."""
+    pass
+
+
+# Global Configuration Instance with fail-safe initialization
 try:
     settings = Settings()
-    print(f"[OK] Configuration loaded successfully for environment: {settings.environment}")
 except ValidationError as e:
-    print("=" * 80)
-    print("FATAL CONFIGURATION ERROR")
-    print("=" * 80)
-    print("\nThe application cannot start due to invalid configuration:")
-    print(e)
-    print("\nPlease check your .env file and ensure all required variables are set.")
-    print("=" * 80)
-    sys.exit(1)
+    # In test environments or when explicitly caught, do not hard exit the entire process
+    logger_msg = f"Valerie configuration validation error: {e}"
+    raise ConfigurationError(logger_msg) from e
 except Exception as e:
-    print("=" * 80)
-    print("UNEXPECTED CONFIGURATION ERROR")
-    print("=" * 80)
-    print(f"\n{type(e).__name__}: {e}")
-    sys.exit(1)
+    raise ConfigurationError(f"Unexpected configuration error: {e}") from e
 
 
 # Export only what's needed
-__all__ = ["settings", "Settings", "AWSConfig", "DatabaseConfig"]
+__all__ = ["settings", "Settings", "AWSConfig", "DatabaseConfig", "RedisConfig", "MistralConfig", "ConfigurationError"]

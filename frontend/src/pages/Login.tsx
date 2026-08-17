@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../utils/api';
 import { Shield, ArrowRight } from 'lucide-react';
@@ -10,7 +11,14 @@ export default function Login() {
   const [isRegister, setIsRegister] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { user, login } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,10 +27,14 @@ export default function Login() {
     try {
       if (isRegister) {
         const res = await api.authRegister({ email, password });
-        await login(res.access_token);
+        const token = res.access_token || (res as any).token;
+        await login(token);
+        navigate('/dashboard', { replace: true });
       } else {
         const res = await api.authLogin({ email, password });
-        await login(res.access_token);
+        const token = res.access_token || (res as any).token;
+        await login(token);
+        navigate('/dashboard', { replace: true });
       }
     } catch (err: unknown) {
       let msg = err instanceof Error ? err.message : 'Authentication failed';
