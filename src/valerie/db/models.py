@@ -116,14 +116,12 @@ class ForensicEvidenceDoc(BaseModel):
     verdict_hash: str
     created_at: datetime = Field(default_factory=utc_now)
 
-class AuditLogEntryDoc(BaseModel):
+class ApiKey(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
-    sequence_number: int
-    entity_type: str
-    entity_id: str
-    action: str
-    current_hash: str
-    previous_entry_hash: str
-    payload_snapshot: dict
-    timestamp: datetime = Field(default_factory=utc_now)
+    user_id: str
+    key_prefix: str
+    key_hash: str
+    label: str
+    created_at: datetime = Field(default_factory=utc_now)
+    is_active: bool = True
 
