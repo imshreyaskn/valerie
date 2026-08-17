@@ -254,7 +254,8 @@ async def stream_run_events(
         headers={
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
         }
     )
 

@@ -30,7 +30,7 @@ export function useRunStream(runId: string | null) {
 
     // Connect to the SSE endpoint with auth token query param (Phase 3 SSE requirement)
     const token = localStorage.getItem('vl_jwt');
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+    const baseUrl = import.meta.env.VITE_API_URL || '/api';
     const url = `${baseUrl}/runs/stream/${runId}?token=${token || ''}`;
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
