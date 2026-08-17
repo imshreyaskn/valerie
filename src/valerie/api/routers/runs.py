@@ -222,6 +222,9 @@ async def stream_run_events(
         global _active_sse_connections
         subscriber = EventSubscriber()
         try:
+            # Send initial ping immediately to flush response headers to proxy/client
+            yield ": connected\n\n"
+
             if run_id == "all":
                 last_event_id_val = "$"
             else:
@@ -245,6 +248,14 @@ async def stream_run_events(
             _active_sse_connections = max(0, _active_sse_connections - 1)
             await subscriber.close()
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 

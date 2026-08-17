@@ -72,7 +72,7 @@ export const StreamStatusBanner: React.FC = () => {
           <div className="w-full pt-3 hairline-top mt-2 text-[11px] text-slate grid grid-cols-1 md:grid-cols-3 gap-2">
             <div>
               <span className="text-taupe uppercase">TARGET STREAM:</span>{' '}
-              <code className="text-steel font-bold">/api/runs/stream/{activeRunId}</code>
+              <code className="text-steel font-bold">/runs/stream/{activeRunId}</code>
             </div>
             <div>
               <span className="text-taupe uppercase">TOTAL CAPTURED:</span>{' '}
