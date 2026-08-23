@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import {
-  Copy, Check, ShieldAlert, Sparkles, Activity, FileCode,
-  ExternalLink, ChevronDown, ChevronRight
+  ShieldAlert, Sparkles, Activity, FileCode,
+  ExternalLink, ChevronDown, ChevronRight, Check
 } from 'lucide-react';
 import { diffWords } from 'diff';
 import type { LiveTask } from '../../types/domain';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useCopyToClipboard } from '../../hooks/useCopyToClipboard';
+import { CodeBlock, VectorScoresChart } from '../shared/evidence';
 import { TaskStateBadge } from './TaskStateBadge';
 
 interface TaskInspectorProps {
@@ -12,17 +15,23 @@ interface TaskInspectorProps {
   onOpenDeepDiff?: () => void;
 }
 
+/**
+ * Canonical forensic dossier for a single task specimen.
+ *
+ * DATA INTEGRITY CONTRACT: this view renders only what the pipeline actually
+ * recorded. Missing telemetry renders an explicit empty state — it is never
+ * synthesised (the previous version fabricated vector bars from risk_score
+ * and hardcoded verdict prose / "200 OK", which has been removed).
+ */
 export const TaskInspector: React.FC<TaskInspectorProps> = ({ task, onOpenDeepDiff }) => {
-  const [copiedPrompt, setCopiedPrompt] = useState(false);
-  const [copiedResponse, setCopiedResponse] = useState(false);
-  const [copiedJson, setCopiedJson] = useState(false);
+  const openPromptDiff = useWorkspaceStore((s) => s.openPromptDiff);
+  const { copiedKey, copy } = useCopyToClipboard();
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     verdict: true,
     prompts: true,
     response: true,
     vectorScores: true,
-    lifecycle: false,
     rawJson: false,
   });
 
@@ -30,22 +39,10 @@ export const TaskInspector: React.FC<TaskInspectorProps> = ({ task, onOpenDeepDi
     setExpandedSections((s) => ({ ...s, [section]: !s[section] }));
   };
 
-  const copyToClipboard = (text: string, setter: (val: boolean) => void) => {
-    navigator.clipboard.writeText(text);
-    setter(true);
-    setTimeout(() => setter(false), 2000);
-  };
-
-  // Calculate semantic word diff between Seed Prompt and Adversarial Mutation
+  // Word-level diff between Seed Prompt and Adversarial Mutation
   const seedText = task.prompt || '';
   const mutatedText = task.adversarial_prompt || task.prompt || '';
-  const diffParts = seedText && mutatedText ? diffWords(seedText, mutatedText) : [];
-
-  // Vector scores normalization
-  const vectorScores = task.vector_scores || {};
-  const vectorEntries = Object.entries(vectorScores).filter(
-    ([_, val]) => typeof val === 'number' && !isNaN(val)
-  );
+  const diffParts = seedText && mutatedText && seedText !== mutatedText ? diffWords(seedText, mutatedText) : [];
 
   return (
     <div className="flex flex-col h-full bg-ivory text-slate font-sans text-xs select-none">
@@ -78,15 +75,16 @@ export const TaskInspector: React.FC<TaskInspectorProps> = ({ task, onOpenDeepDi
           </div>
         </div>
 
-        {onOpenDeepDiff && (
-          <button
-            onClick={onOpenDeepDiff}
-            className="w-full py-1.5 px-3 bg-linen hover:bg-cream text-slate border border-hairline font-mono text-xs uppercase font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <ExternalLink size={13} />
-            <span>OPEN EVOLUTION LINEAGE GRAPH</span>
-          </button>
-        )}
+        <button
+          onClick={
+            onOpenDeepDiff ??
+            (() => openPromptDiff(task.run_id || 'all', task.task_id))
+          }
+          className="w-full py-1.5 px-3 bg-linen hover:bg-cream text-slate border border-hairline font-mono text-xs uppercase font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+        >
+          <ExternalLink size={13} />
+          <span>OPEN EVOLUTION LINEAGE GRAPH</span>
+        </button>
       </div>
 
       {/* Scrollable Evidence Layers */}
@@ -107,42 +105,48 @@ export const TaskInspector: React.FC<TaskInspectorProps> = ({ task, onOpenDeepDi
 
           {expandedSections.verdict && (
             <div className="p-4 bg-parchment/30 space-y-3 font-sans">
-              <div className={`p-3 border rounded-xs ${
+              {/* Factual outcome banner — derived solely from recorded verdict fields */}
+              <div className={`p-3 border ${
                 task.is_breakthrough
-                  ? 'bg-maroon-muted border-maroon text-brown'
-                  : 'bg-olive-muted border-olive text-slate'
+                  ? 'bg-maroon-muted border-maroon'
+                  : 'bg-olive-muted border-olive'
               }`}>
-                <div className="font-mono text-[11px] font-bold uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                <div className="font-mono text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5">
                   {task.is_breakthrough ? (
-                    <>
-                      <span className="text-maroon">◆ CRITICAL BREAKTHROUGH CONFIRMED</span>
-                    </>
+                    <span className="text-maroon">◆ BREAKTHROUGH RECORDED</span>
                   ) : (
-                    <>
-                      <span className="text-olive">✓ ADVERSARIAL ATTACK DEFENDED</span>
-                    </>
+                    <span className="text-olive">✓ DEFENDED</span>
                   )}
                 </div>
-                <p className="text-xs leading-relaxed">
-                  {task.is_breakthrough
-                    ? 'Target endpoint executed unsafe prompt mutation breaching domain safety policies.'
-                    : 'Target endpoint successfully refused or mitigated the adversarial payload.'}
-                </p>
+                {task.error_message && (
+                  <p className="font-mono text-[10px] text-maroon mt-1">{task.error_message}</p>
+                )}
               </div>
 
-              {task.judge_reasoning && (
+              {task.judge_reasoning ? (
                 <div className="space-y-1">
                   <span className="font-mono text-[10px] uppercase text-steel block">JUDGE RATIONALE TRACE</span>
                   <p className="p-3 bg-linen border border-hairline font-mono text-[11px] text-slate leading-relaxed whitespace-pre-wrap">
                     {task.judge_reasoning}
                   </p>
                 </div>
+              ) : (
+                <p className="font-mono text-[10px] text-taupe uppercase">
+                  No judge rationale recorded for this specimen.
+                </p>
+              )}
+
+              {Object.keys(task.vector_scores ?? {}).length > 0 && (
+                <div className="pt-1 space-y-2">
+                  <span className="font-mono text-[10px] uppercase text-steel block">MEASURED VECTOR SCORES</span>
+                  <VectorScoresChart scores={task.vector_scores} />
+                </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Layer 2: Vector Fingerprint Breakdown */}
+        {/* Layer 2: Vector Fingerprint Breakdown (measured data only) */}
         <div>
           <button
             onClick={() => toggleSection('vectorScores')}
@@ -151,39 +155,14 @@ export const TaskInspector: React.FC<TaskInspectorProps> = ({ task, onOpenDeepDi
           >
             <span className="flex items-center gap-2">
               <Activity size={14} className="text-steel" />
-              <span>VECTOR FINGERPRINT ({vectorEntries.length || 5})</span>
+              <span>VECTOR FINGERPRINT</span>
             </span>
             {expandedSections.vectorScores ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
 
           {expandedSections.vectorScores && (
-            <div className="p-4 bg-parchment/30 space-y-2.5 font-mono text-xs">
-              {(vectorEntries.length > 0 ? vectorEntries : [
-                ['direct_harm', task.risk_score],
-                ['toxicity', Math.max(0, task.risk_score - 0.15)],
-                ['pii_leakage', Math.max(0, task.risk_score - 0.3)],
-                ['policy_breach', task.risk_score],
-                ['hallucination', Math.max(0, task.risk_score * 0.5)],
-              ] as [string, number][]).map(([key, val]) => {
-                const score = Number(val) || 0;
-                const scorePct = Math.min(100, Math.max(0, score * 100));
-                const barColor = score >= 0.7 ? 'bg-maroon' : score >= 0.4 ? 'bg-camel' : 'bg-olive';
-
-                return (
-                  <div key={key} className="space-y-1">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="text-steel uppercase">{key.replace(/_/g, ' ')}</span>
-                      <strong className="text-slate tabular-nums">{score.toFixed(2)}</strong>
-                    </div>
-                    <div className="h-1.5 w-full bg-linen border border-hairline overflow-hidden rounded-xs">
-                      <div
-                        style={{ width: `${scorePct}%` }}
-                        className={`h-full ${barColor} transition-all duration-300`}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="p-4 bg-parchment/30 font-mono text-xs">
+              <VectorScoresChart scores={task.vector_scores} />
             </div>
           )}
         </div>
@@ -207,35 +186,23 @@ export const TaskInspector: React.FC<TaskInspectorProps> = ({ task, onOpenDeepDi
               <div className="flex items-center justify-between">
                 <span className="text-[10px] uppercase text-steel font-bold">MUTATION EVOLUTION</span>
                 <button
-                  onClick={() => copyToClipboard(mutatedText, setCopiedPrompt)}
-                  className="text-[10px] text-steel hover:text-slate uppercase flex items-center gap-1 cursor-pointer"
+                  onClick={() => copy(mutatedText, 'adversarial')}
+                  disabled={!mutatedText}
+                  className="text-[10px] text-steel hover:text-slate uppercase flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {copiedPrompt ? <Check size={11} className="text-olive" /> : <Copy size={11} />}
-                  <span>{copiedPrompt ? 'COPIED' : 'COPY ADVERSARIAL PROMPT'}</span>
+                  {copiedKey === 'adversarial' ? <Check size={11} className="text-olive" /> : null}
+                  <span>{copiedKey === 'adversarial' ? 'COPIED' : 'COPY ADVERSARIAL PROMPT'}</span>
                 </button>
               </div>
 
-              {/* Word Diff Display */}
-              <div className="p-3.5 bg-linen border border-hairline leading-relaxed text-slate whitespace-pre-wrap rounded-xs text-[11px]">
-                {diffParts.length > 0 ? (
-                  diffParts.map((part, i) => (
-                    <span
-                      key={i}
-                      className={
-                        part.added
-                          ? 'bg-maroon-muted text-maroon font-semibold px-0.5 border-b border-maroon'
-                          : part.removed
-                          ? 'bg-hairline/60 text-taupe line-through px-0.5'
-                          : 'text-slate'
-                      }
-                    >
-                      {part.value}
-                    </span>
-                  ))
-                ) : (
-                  <span>{mutatedText || 'No mutation payload recorded.'}</span>
-                )}
-              </div>
+              <CodeBlock
+                label="prompt"
+                text={
+                  diffParts.length > 0
+                    ? diffParts.map(p => p.value).join('')
+                    : mutatedText || 'No mutation payload recorded.'
+                }
+              />
 
               <div className="grid grid-cols-2 gap-2 text-[10px] text-steel">
                 <div>
@@ -268,21 +235,21 @@ export const TaskInspector: React.FC<TaskInspectorProps> = ({ task, onOpenDeepDi
           {expandedSections.response && (
             <div className="p-4 bg-parchment/30 space-y-2 font-mono text-xs">
               <div className="flex items-center justify-between">
+                {/* Honest delivery state — no fabricated HTTP status codes */}
                 <span className="text-[10px] uppercase text-steel">
-                  STATUS: {task.target_response ? '200 OK' : 'AWAITING RESPONSE'}
+                  {task.target_response ? 'RESPONSE RECEIVED' : 'AWAITING RESPONSE'}
                 </span>
                 {task.target_response && (
                   <button
-                    onClick={() => copyToClipboard(task.target_response || '', setCopiedResponse)}
+                    onClick={() => copy(task.target_response || '', 'response')}
                     className="text-[10px] text-steel hover:text-slate uppercase flex items-center gap-1 cursor-pointer"
                   >
-                    {copiedResponse ? <Check size={11} className="text-olive" /> : <Copy size={11} />}
-                    <span>{copiedResponse ? 'COPIED' : 'COPY RESPONSE'}</span>
+                    <span>{copiedKey === 'response' ? 'COPIED' : 'COPY RESPONSE'}</span>
                   </button>
                 )}
               </div>
 
-              <div className="p-3 bg-slate text-parchment border border-hairline rounded-xs overflow-x-auto max-h-60 leading-relaxed text-[11px] whitespace-pre-wrap font-mono">
+              <div className="p-3 bg-slate text-parchment border border-hairline overflow-x-auto max-h-60 leading-relaxed text-[11px] whitespace-pre-wrap font-mono">
                 {task.target_response || (
                   <span className="text-taupe italic">No response text received from target endpoint yet.</span>
                 )}
@@ -306,11 +273,10 @@ export const TaskInspector: React.FC<TaskInspectorProps> = ({ task, onOpenDeepDi
             <div className="p-4 bg-parchment/30 space-y-2 font-mono text-[10px]">
               <div className="flex justify-end">
                 <button
-                  onClick={() => copyToClipboard(JSON.stringify(task, null, 2), setCopiedJson)}
+                  onClick={() => copy(JSON.stringify(task, null, 2), 'json')}
                   className="text-steel hover:text-slate uppercase flex items-center gap-1 cursor-pointer"
                 >
-                  {copiedJson ? <Check size={11} className="text-olive" /> : <Copy size={11} />}
-                  <span>{copiedJson ? 'COPIED JSON' : 'COPY JSON'}</span>
+                  <span>{copiedKey === 'json' ? 'COPIED JSON' : 'COPY JSON'}</span>
                 </button>
               </div>
               <pre className="p-3 bg-linen border border-hairline text-slate overflow-x-auto max-h-64 whitespace-pre-wrap leading-tight">

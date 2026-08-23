@@ -1,35 +1,48 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../utils/api';
 import { pinFindingAsCase, unpinCase, getInvestigationCases } from '../utils/investigationCases';
 import { Search, ChevronDown, ChevronUp, X, Filter, Pin, Check } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { PageHeader, StatusBadge, ActionButton } from '../components/ui';
-import { useNavigate } from 'react-router-dom';
+import { TelemetryRow } from '../components/ui/TelemetryRow';
+import { SegmentFilter } from '../components/ui/SegmentFilter';
+import { EvidenceDossier, getSeverityVariant } from '../components/shared/EvidenceDossier';
+import { useHotkeyFocus } from '../hooks/useHotkeyFocus';
+import { useCachedQuery } from '../utils/queryCache';
 import type { Finding } from '../types/domain';
 
 export default function Findings() {
   const navigate = useNavigate();
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const location = useLocation();
+
+  // Cluster deep-link: the Weaknesses atlas navigates here with a pinned
+  // cluster scope so knowledge connects to evidence in one click.
+  const clusterScope = (location.state ?? null) as
+    | { clusterName?: string; findingIds?: string[] }
+    | null;
+  const clusterIdSet = useMemo(
+    () => new Set(clusterScope?.findingIds ?? []),
+    [clusterScope]
+  );
+
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
   const [severityFilter, setSeverityFilter] = useState('ALL');
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  useHotkeyFocus(searchInputRef);
+
+  const findingsResource = useCachedQuery('findings:ledger', () => api.getFindings(100, 0));
+  const findings: Finding[] = useMemo(() => findingsResource.data?.findings ?? [], [findingsResource.data]);
+  const loading = findingsResource.loading && findings.length === 0;
+  const loadError = findingsResource.error && findings.length === 0
+    ? 'Could not load findings. Check your connection and retry.'
+    : null;
+
   useEffect(() => {
-    setLoading(true);
-    setLoadError(null);
-    api.getFindings(100, 0)
-      .then((res) => {
-        setFindings(res.findings || []);
-        setPinnedIds(new Set(getInvestigationCases().map((c) => c.id)));
-      })
-      .catch((err) => {
-        console.error('Failed to load findings', err);
-        setLoadError('Could not load findings. Check your connection and retry.');
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    setPinnedIds(new Set(getInvestigationCases().map((c) => c.id)));
+  }, [findingsResource.data]);
 
   // Re-sync pin state when cases change on the Investigation Board.
   useEffect(() => {
@@ -61,15 +74,9 @@ export default function Findings() {
     });
   };
 
-  const getSeverityVariant = (severity: string) => {
-    const s = severity?.toLowerCase();
-    if (s === 'critical' || s === 'high') return 'maroon';
-    if (s === 'medium' || s === 'warning') return 'camel';
-    return 'powder';
-  };
-
   const filteredFindings = useMemo(() => {
     return findings.filter((f) => {
+      if (clusterIdSet.size > 0 && !clusterIdSet.has(f.id)) return false;
       if (severityFilter !== 'ALL' && f.severity?.toLowerCase() !== severityFilter.toLowerCase()) {
         return false;
       }
@@ -82,11 +89,17 @@ export default function Findings() {
       }
       return true;
     });
-  }, [findings, severityFilter, searchQuery]);
+  }, [findings, severityFilter, searchQuery, clusterIdSet]);
 
-  const totalBreakthroughs = useMemo(() => {
-    return findings.filter((f) => f.is_breakthrough).length;
-  }, [findings]);
+  const totalBreakthroughs = useMemo(
+    () => findings.filter((f) => f.is_breakthrough).length,
+    [findings]
+  );
+
+  const clearClusterScope = () => {
+    // Replace history state so back/forward doesn't re-apply the scope.
+    navigate('/dashboard/findings', { replace: true, state: null });
+  };
 
   return (
     <section className="flex flex-col w-full hairline-bottom animate-fade-in pb-16 font-mono select-none" aria-label="Breakthrough Findings">
@@ -95,147 +108,117 @@ export default function Findings() {
         title="FINDINGS EXPLORER"
         subtitle="CONFIRMED BREAKTHROUGHS, EXPLOIT EVIDENCE DOSSIERS &amp; DISPOSITION TRIAGE"
         action={
-          <div className="flex items-center gap-3">
-            <ActionButton
-              variant="secondary"
-              icon={<Pin size={14} />}
-              onClick={() => navigate('/dashboard/investigation')}
-            >
-              VIEW PINNED BOARD ({pinnedIds.size})
-            </ActionButton>
-            <ActionButton
-              variant="primary"
-              onClick={() => navigate('/dashboard/campaigns')}
-            >
-              LAUNCH CAMPAIGN →
-            </ActionButton>
-          </div>
+          <ActionButton
+            variant="secondary"
+            icon={<Pin size={14} />}
+            onClick={() => navigate('/dashboard/investigation')}
+          >
+            VIEW PINNED BOARD ({pinnedIds.size})
+          </ActionButton>
         }
       />
 
-      {/* ── 2. Swiss Telemetry Row ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-hairline hairline-bottom select-none">
-        <div className="py-5 pr-4 md:py-6 md:pr-6 md:pl-0 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.01</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              TOTAL FINDINGS
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-              {findings.length} <span className="text-steel text-sm font-normal">DOSSIERS</span>
-            </div>
-            <div className="text-[10px] text-steel mt-2 uppercase truncate">
-              INDEXED SECURITY SPECIMENS
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 md:p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.02</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              CRITICAL BREACHES
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl md:text-3xl font-bold text-maroon tabular-nums leading-none flex items-center gap-1.5">
-              {totalBreakthroughs > 0 && <span className="text-sm">◆</span>}
-              {totalBreakthroughs}
-            </div>
-            <div className="text-[10px] text-steel mt-2 uppercase truncate">
-              THRESHOLD-CROSSING EXPLOITS
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 md:p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.03</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              PINNED FOR INVESTIGATION
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-              {pinnedIds.size} <span className="text-steel text-sm font-normal">PINNED</span>
-            </div>
-            <div className="text-[10px] text-steel mt-2 uppercase truncate">
-              READY FOR FORENSIC CASE STUDY
-            </div>
-          </div>
-        </div>
-
-        <div className="py-5 pl-4 md:py-6 md:pl-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.04</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              AUDIT COMPLIANCE
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl md:text-3xl font-bold text-olive tabular-nums leading-none flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-olive" />
-              TRACEABLE
-            </div>
-            <div className="text-[10px] text-steel mt-2 uppercase truncate">
-              IMMUTABLE PROVENANCE LINKS
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* ── 2. Telemetry Row (1.04 is a configuration fact, styled static) ── */}
+      <TelemetryRow
+        ariaLabel="Findings metrics"
+        cells={[
+          {
+            index: '1.01',
+            label: 'TOTAL FINDINGS',
+            value: <><span>{findings.length}</span><span className="text-steel text-sm font-normal"> DOSSIERS</span></>,
+            sublabel: 'INDEXED SECURITY SPECIMENS',
+          },
+          {
+            index: '1.02',
+            label: 'CRITICAL BREACHES',
+            variant: totalBreakthroughs > 0 ? 'maroon' : 'default',
+            value: (
+              <span className={`flex items-center gap-1.5 ${totalBreakthroughs > 0 ? 'text-maroon' : 'text-slate'}`}>
+                {totalBreakthroughs > 0 && <span className="text-sm">◆</span>}
+                {totalBreakthroughs}
+              </span>
+            ),
+            sublabel: 'THRESHOLD-CROSSING EXPLOITS',
+          },
+          {
+            index: '1.03',
+            label: 'PINNED FOR INVESTIGATION',
+            value: <><span>{pinnedIds.size}</span><span className="text-steel text-sm font-normal"> PINNED</span></>,
+            sublabel: 'READY FOR FORENSIC CASE STUDY',
+          },
+          {
+            index: '1.04',
+            label: 'EVIDENCE PROVENANCE',
+            variant: 'static',
+            value: <span className="text-slate">SHA-256</span>,
+            sublabel: 'HASH-CHAINED AUDIT TRAIL',
+          },
+        ]}
+      />
 
       {/* ── 3. Search & Filter Bar ── */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between hairline-bottom bg-linen/20 p-2 sm:px-6 select-none gap-2 text-xs">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between hairline-bottom bg-linen/20 p-2 sm:px-6 gap-2 text-xs">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-steel pointer-events-none" />
           <input
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search findings by technique, endpoint, or ID [/]"
             className="w-full pl-9 pr-8 py-1.5 bg-ivory border border-hairline text-xs font-mono text-slate placeholder:text-taupe focus:border-slate focus:outline-none shadow-2xs"
+            aria-label="Search findings"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-steel hover:text-slate"
+              aria-label="Clear search"
             >
               <X size={12} />
             </button>
           )}
         </div>
 
-        {/* Severity Filter — Vertical Line Hierarchy */}
-        <div className="flex items-center gap-2 font-mono text-[10px] overflow-x-auto">
-          <span className="text-taupe uppercase text-[9px] tracking-wider">SEVERITY:</span>
-          {['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((lvl, idx) => (
-            <React.Fragment key={lvl}>
-              {idx > 0 && <span className="h-3 w-px bg-hairline" />}
-              <button
-                onClick={() => setSeverityFilter(lvl)}
-                className={`transition-colors cursor-pointer uppercase tracking-wider ${
-                  severityFilter === lvl
-                    ? 'text-slate font-bold'
-                    : 'text-taupe hover:text-slate'
-                }`}
-              >
-                {lvl}
-              </button>
-            </React.Fragment>
-          ))}
-        </div>
+        <SegmentFilter
+          leadingLabel="SEVERITY:"
+          ariaLabel="Filter by severity"
+          value={severityFilter}
+          onChange={setSeverityFilter}
+          options={[
+            { id: 'ALL', label: 'ALL' },
+            { id: 'CRITICAL', label: 'CRITICAL' },
+            { id: 'HIGH', label: 'HIGH' },
+            { id: 'MEDIUM', label: 'MEDIUM' },
+            { id: 'LOW', label: 'LOW' },
+          ]}
+        />
       </div>
 
-      {/* ── 4. Findings Table ── */}
+      {/* ── 4. Cluster Scope Chip ── */}
+      {clusterScope?.clusterName && (
+        <div className="flex items-center justify-between px-4 py-2 bg-camel-muted hairline-bottom font-mono text-[11px]">
+          <span className="text-brown font-bold uppercase tracking-wider">
+            CLUSTER SCOPE: {clusterScope.clusterName.toUpperCase()} ({filteredFindings.length} MATCHES)
+          </span>
+          <button
+            onClick={clearClusterScope}
+            className="flex items-center gap-1 text-brown hover:text-maroon uppercase font-bold cursor-pointer"
+          >
+            <X size={12} />
+            CLEAR SCOPE
+          </button>
+        </div>
+      )}
+
+      {/* ── 5. Findings Table ── */}
       {loading ? (
         <div className="py-16 text-center text-xs text-steel">LOADING FINDINGS DOSSIERS</div>
       ) : loadError ? (
         <div className="mx-4 my-6 border border-maroon/40 bg-maroon/5 p-4 text-center">
           <p className="text-xs font-bold uppercase text-maroon">{loadError}</p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => findingsResource.reload()}
             className="mt-2 text-[10px] font-bold uppercase tracking-widest text-steel underline hover:text-slate"
           >
             Retry
@@ -322,36 +305,8 @@ export default function Findings() {
                     </div>
                   </div>
 
-                  {/* Expanded Evidence Dossier */}
-                  {isExpanded && (
-                    <div className="p-6 bg-linen/50 hairline-top space-y-4 font-mono text-xs animate-fade-in">
-                      <div className="flex items-center justify-between pb-2 hairline-bottom">
-                        <span className="font-bold text-slate uppercase text-xs">
-                          EVIDENCE DOSSIER // RISK SEVERITY SCORE: {f.score?.toFixed(2) || '0.85'}
-                        </span>
-                        <span className="text-steel text-[11px]">
-                          TIMESTAMP: {new Date(f.created_at || Date.now()).toLocaleString()}
-                        </span>
-                      </div>
-
-                      {f.evidence && f.evidence.length > 0 ? (
-                        <div className="space-y-2">
-                          {f.evidence.map((ev, evIdx) => (
-                            <div key={evIdx} className="p-3 bg-ivory border border-hairline space-y-1">
-                              <span className="font-bold text-slate uppercase text-[10px] block">
-                                [{ev.type}]:
-                              </span>
-                              <p className="text-slate font-sans leading-relaxed">{ev.description}</p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="p-3 bg-ivory border border-hairline text-steel">
-                          Confirmed bypass observed at threshold score. Trace lineage available in Mission Control.
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Expanded Evidence Dossier (shared component) */}
+                  {isExpanded && <EvidenceDossier finding={f} />}
                 </div>
               );
             })}

@@ -10,12 +10,13 @@
  *              pipelineStore.liveTasks, pipelineStore.activeRunMeta, pipelineStore.runStats
  * Store writes: graphStore.closeInspector, graphStore.toggleSection, graphStore.setInspectorWidth
  */
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useRef } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { X, Copy, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useGraphStore } from './store/graphStore';
 import { usePipelineStore } from '../../../stores/pipelineStore';
-import type { LiveTask, VectorScores } from '../../../types/domain';
+import type { LiveTask } from '../../../types/domain';
+import { CodeBlock, VectorScoresChart } from '../../shared/evidence';
 
 // ── Section animation ─────────────────────────────────────────────────────────
 const sectionExpand = {
@@ -57,66 +58,6 @@ function Section({
           {children}
         </div>
       </motion.div>
-    </div>
-  );
-}
-
-// ── Vector scores bar chart ───────────────────────────────────────────────────
-function VectorScoresChart({ scores }: { scores: VectorScores }) {
-  const dims = Object.entries(scores)
-    .filter(([, v]) => v !== undefined)
-    .sort(([, a], [, b]) => (b ?? 0) - (a ?? 0))
-    .slice(0, 10);
-
-  if (dims.length === 0) return <p className="font-sans text-xs text-taupe">No score data</p>;
-
-  return (
-    <div className="space-y-1.5">
-      {dims.map(([dim, val]) => {
-        const pct = Math.round((val ?? 0) * 100);
-        const barClass = pct >= 70 ? 'bg-maroon' : pct >= 40 ? 'bg-camel' : 'bg-olive';
-        return (
-          <div key={dim} className="flex items-center gap-2">
-            <span className="font-mono text-[9px] text-steel w-24 flex-shrink-0 truncate">
-              {dim.replace(/_/g, ' ')}
-            </span>
-            <div className="flex-1 h-1 bg-linen">
-              <div className={`h-full ${barClass} transition-all duration-300`} style={{ width: `${pct}%` }} />
-            </div>
-            <span className="font-mono text-[10px] font-bold tabular-nums text-slate w-8 text-right">
-              {(val ?? 0).toFixed(2)}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Prompt/response code block ────────────────────────────────────────────────
-function CodeBlock({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [text]);
-
-  return (
-    <div className="bg-linen p-3 relative group">
-      <pre className="font-mono text-[11px] text-slate whitespace-pre-wrap break-words leading-relaxed max-h-48 overflow-y-auto">
-        {text}
-      </pre>
-      <button
-        onClick={copy}
-        className="absolute top-2 right-2 flex items-center gap-1 font-mono text-[8px] tracking-wider text-steel hover:text-slate transition-colors opacity-0 group-hover:opacity-100"
-        aria-label={`Copy ${label}`}
-      >
-        <Copy size={10} />
-        {copied ? 'COPIED' : 'COPY'}
-      </button>
     </div>
   );
 }

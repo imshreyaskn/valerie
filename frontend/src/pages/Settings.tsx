@@ -1,20 +1,76 @@
+import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../utils/api';
-import { PageHeader, ActionButton } from '../components/ui';
+import { PageHeader, ActionButton, StatusBadge } from '../components/ui';
+import { TelemetryRow } from '../components/ui/TelemetryRow';
 import { useWorkspaceStore } from '../stores/workspaceStore';
+import { useCachedQuery } from '../utils/queryCache';
 import { Shield, User, Sliders, AlertTriangle } from 'lucide-react';
+
+type HealthState = 'loading' | 'ok' | 'degraded' | 'unreachable';
+
+interface HealthSnapshot {
+  overall: HealthState;
+  mongodb: HealthState;
+  redis: HealthState;
+  consumers: HealthState;
+}
+
+function serviceToState(status: string | undefined): HealthState {
+  if (!status) return 'unreachable';
+  if (status === 'ok') return 'ok';
+  if (status.startsWith('unhealthy')) return 'unreachable';
+  return 'degraded';
+}
+
+async function fetchHealth(): Promise<HealthSnapshot> {
+  const data = await api.getHealth();
+  const mongo = serviceToState(data.services?.mongodb);
+  const redis = serviceToState(data.services?.redis);
+  const consumerStates = Object.values(data.consumers ?? {}).map((c) => c.state);
+  const consumers: HealthState =
+    consumerStates.length > 0
+      ? consumerStates.every((s) => s === 'running') ? 'ok'
+      : consumerStates.some((s) => s === 'crashed') ? 'unreachable'
+      : 'degraded'
+      : 'degraded';
+  const overall: HealthState =
+    mongo === 'ok' && redis === 'ok' && consumers === 'ok' ? 'ok'
+    : mongo === 'unreachable' || redis === 'unreachable' ? 'unreachable'
+    : 'degraded';
+  return { overall, mongodb: mongo, redis, consumers };
+}
+
+const LOADING_HEALTH: HealthSnapshot = {
+  overall: 'loading', mongodb: 'loading', redis: 'loading', consumers: 'loading',
+};
 
 export default function Settings() {
   const { user, logout } = useAuth();
   const { density, setDensity } = useWorkspaceStore();
 
+  // Real platform health — replaces the previous hardcoded "OPERATIONAL"
+  // status cells with a live /health probe (15s cache, shared).
+  const healthResource = useCachedQuery('platform:health', fetchHealth, { ttlMs: 15_000 });
+  const health = healthResource.data ?? LOADING_HEALTH;
+
+  const stateBadge = (state: HealthState) => {
+    if (state === 'ok') return <StatusBadge label="OPERATIONAL" variant="olive" />;
+    if (state === 'degraded') return <StatusBadge label="DEGRADED" variant="camel" />;
+    if (state === 'loading') return <StatusBadge label="CHECKING" variant="default" />;
+    return <StatusBadge label="UNREACHABLE" variant="maroon" />;
+  };
+
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const handleDelete = async () => {
     if (!confirm('Are you sure? This will permanently delete your operator account, stored API keys, and all historical pipeline data.')) return;
+    setDeleteError(null);
     try {
       await api.deleteMe();
       await logout();
     } catch (err) {
-      alert(`Account deletion failed: ${err instanceof Error ? err.message : String(err)}`);
+      setDeleteError(`Account deletion failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -26,57 +82,57 @@ export default function Settings() {
         subtitle="OPERATOR ACCOUNT, WORKSTATION PREFERENCES &amp; SECURITY POLICY"
       />
 
-      {/* ── 2. Swiss Telemetry Row ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-hairline hairline-bottom">
-        <div className="py-5 pr-4 md:py-6 md:pr-6 md:pl-0 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.01</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              OPERATOR ROLE
-            </div>
-          </div>
-          <div className="text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-            {user?.role?.toUpperCase() || 'RESEARCHER'}
-          </div>
-        </div>
+      {/* ── 2. Telemetry Row ── */}
+      <TelemetryRow
+        ariaLabel="Operator and platform metrics"
+        cells={[
+          {
+            index: '1.01',
+            label: 'OPERATOR ROLE',
+            value: <span className="text-slate">{user?.role?.toUpperCase() || 'RESEARCHER'}</span>,
+            sublabel: user?.email ?? undefined,
+          },
+          {
+            index: '1.02',
+            label: 'DISPLAY DENSITY',
+            value: <span className="text-slate uppercase">{density}</span>,
+            sublabel: 'LEDGER RENDERING MODE',
+          },
+          {
+            index: '1.03',
+            label: 'PLATFORM HEALTH',
+            variant: health.overall === 'ok' ? 'olive' : health.overall === 'degraded' ? 'camel' : health.overall === 'unreachable' ? 'maroon' : 'default',
+            value: (
+              <span className={
+                health.overall === 'ok' ? 'text-olive'
+                : health.overall === 'degraded' ? 'text-camel'
+                : health.overall === 'unreachable' ? 'text-maroon'
+                : 'text-slate'
+              }>
+                {health.overall === 'loading' ? '…' : health.overall.toUpperCase()}
+              </span>
+            ),
+            sublabel: 'LIVE /HEALTH PROBE',
+          },
+          {
+            index: '1.04',
+            label: 'PLATFORM BUILD',
+            variant: 'static',
+            value: <span className="text-slate">v0.1.2</span>,
+            sublabel: 'VALERIE CORE',
+          },
+        ]}
+      />
 
-        <div className="p-4 md:p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.02</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              DISPLAY DENSITY
-            </div>
-          </div>
-          <div className="text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none uppercase">
-            {density}
-          </div>
+      {/* ── Deletion Error Banner ── */}
+      {deleteError && (
+        <div className="p-4 bg-maroon/5 border-b border-maroon/30 flex items-center justify-between font-mono animate-fade-in" role="alert">
+          <span className="text-xs font-bold uppercase tracking-wider text-maroon">{deleteError}</span>
+          <button onClick={() => setDeleteError(null)} className="text-maroon hover:text-slate cursor-pointer p-1" aria-label="Dismiss error">
+            <AlertTriangle size={14} />
+          </button>
         </div>
-
-        <div className="p-4 md:p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.03</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              TELEMETRY BUS
-            </div>
-          </div>
-          <div className="text-2xl md:text-3xl font-bold text-olive tabular-nums leading-none flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-olive" />
-            REDIS STREAMS
-          </div>
-        </div>
-
-        <div className="py-5 pl-4 md:py-6 md:pl-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.04</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              PLATFORM BUILD
-            </div>
-          </div>
-          <div className="text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-            v0.1.2
-          </div>
-        </div>
-      </div>
+      )}
 
       <div className="divide-y divide-hairline">
         {/* ── 3. Operator Identity Section ── */}
@@ -134,27 +190,27 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* ── 5. Platform Architecture Status ── */}
+        {/* ── 5. Platform Architecture Status (live /health probe) ── */}
         <div className="p-6 md:p-8 bg-ivory space-y-4">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate pb-2 hairline-bottom">
             <Shield size={14} />
-            <span>ARCHITECTURAL DOMAIN STATUS</span>
+            <span>ARCHITECTURAL DOMAIN STATUS — LIVE HEALTH PROBE</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
             <div className="p-3.5 bg-linen/50 border border-hairline space-y-1">
-              <span className="text-[9px] uppercase text-taupe block">01. EXECUTION ENGINE</span>
-              <span className="font-bold text-slate block">LITELLM + MISTRAL</span>
-              <span className="text-[10px] text-olive font-bold uppercase">● OPERATIONAL</span>
+              <span className="text-[9px] uppercase text-taupe block">01. DOCUMENT STORE</span>
+              <span className="font-bold text-slate block">MONGODB</span>
+              {stateBadge(health.mongodb)}
             </div>
             <div className="p-3.5 bg-linen/50 border border-hairline space-y-1">
               <span className="text-[9px] uppercase text-taupe block">02. EVENT STREAM BUS</span>
               <span className="font-bold text-slate block">REDIS STREAMS</span>
-              <span className="text-[10px] text-olive font-bold uppercase">● SSE BROADCASTING</span>
+              {stateBadge(health.redis)}
             </div>
             <div className="p-3.5 bg-linen/50 border border-hairline space-y-1">
-              <span className="text-[9px] uppercase text-taupe block">03. INTELLIGENCE DOMAIN</span>
-              <span className="font-bold text-slate block">DBSCAN + ISOLATION FOREST</span>
-              <span className="text-[10px] text-olive font-bold uppercase">● ML CONSUMERS ONLINE</span>
+              <span className="text-[9px] uppercase text-taupe block">03. INTELLIGENCE CONSUMERS</span>
+              <span className="font-bold text-slate block">ML EVENT PIPELINE</span>
+              {stateBadge(health.consumers)}
             </div>
           </div>
         </div>

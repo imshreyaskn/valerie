@@ -60,7 +60,6 @@ export const api = {
   // Campaign / Run Pipelines
   listRuns: (limit = 50, offset = 0): Promise<{ runs: Run[] }> =>
     fetchWithAuth<{ runs: Run[] }>(`/runs/?limit=${limit}&offset=${offset}`),
-  getRun: (id: string): Promise<Run> => fetchWithAuth<Run>(`/runs/${id}`),
   createRun: (config: CreateRunPayload): Promise<{ run_id: string; status: string }> =>
     fetchWithAuth<{ run_id: string; status: string }>('/runs/', { method: 'POST', body: JSON.stringify(config) }),
   getResults: (runId: string): Promise<RunResultsResponse> =>
@@ -88,14 +87,16 @@ export const api = {
   // Lineage & Forensic Intelligence
   getLineage: (runId: string, taskId: string): Promise<Record<string, unknown>> =>
     fetchWithAuth<Record<string, unknown>>(`/lineage/runs/${runId}/tasks/${taskId}`),
-  getPromptLineage: (promptId: string): Promise<Record<string, unknown>> =>
-    fetchWithAuth<Record<string, unknown>>(`/lineage/${promptId}`),
-  getIntelligenceAnomalies: (): Promise<Record<string, unknown>> =>
-    fetchWithAuth<Record<string, unknown>>('/intelligence/feed'),
-  getIntelligenceClusters: (): Promise<Record<string, unknown>> =>
-    fetchWithAuth<Record<string, unknown>>('/intelligence/clusters'),
-  getIntelligenceCoverage: (): Promise<Record<string, unknown>> =>
-    fetchWithAuth<Record<string, unknown>>('/intelligence/coverage'),
   getDomainHarmTypes: (domain: string): Promise<{ harm_types: string[] }> =>
     fetchWithAuth<{ harm_types: string[] }>(`/domains/${domain}/harm-types`),
+
+  // Platform registries & health
+  getTechniques: (): Promise<{ techniques: Array<{ id: string; name: string; desc?: string; description?: string }> }> =>
+    fetchWithAuth<{ techniques: Array<{ id: string; name: string; desc?: string; description?: string }> }>('/attacks/techniques'),
+  getHealth: (): Promise<{
+    status: string;
+    environment: string;
+    services: { mongodb: string; redis: string };
+    consumers: Record<string, { state: string }>;
+  }> => fetch(`${API_URL}/health`).then((r) => r.json()),
 };

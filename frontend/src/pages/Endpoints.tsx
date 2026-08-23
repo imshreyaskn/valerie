@@ -1,8 +1,11 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../utils/api';
 import { Trash2, X, Plus, Play, RefreshCw, Radio, Search } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { PageHeader, ActionButton, StatusBadge } from '../components/ui';
+import { TelemetryRow } from '../components/ui/TelemetryRow';
+import { useLauncherStore } from '../stores/launcherStore';
+import { useHotkeyFocus } from '../hooks/useHotkeyFocus';
+import { useCachedQuery, invalidate } from '../utils/queryCache';
 import type { Endpoint, EndpointProvider } from '../types/domain';
 
 const PROVIDER_OPTIONS: { id: EndpointProvider; label: string; defaultUrl: string }[] = [
@@ -13,11 +16,11 @@ const PROVIDER_OPTIONS: { id: EndpointProvider; label: string; defaultUrl: strin
 ];
 
 export default function Endpoints() {
-  const navigate = useNavigate();
-  const [endpoints, setEndpoints] = useState<Endpoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const openLauncher = useLauncherStore((s) => s.openLauncher);
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateEndpoint, setShowCreateEndpoint] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -30,19 +33,17 @@ export default function Endpoints() {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { status: 'ok' | 'error'; detail?: string; latency?: number }>>({});
 
-  const loadEndpoints = () => {
-    setLoading(true);
-    api.listEndpoints()
-      .then((res) => {
-        setEndpoints(res.endpoints || []);
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  };
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  useHotkeyFocus(searchInputRef);
+
+  // Cached endpoint registry — shared with the launcher's Stage 1 selector.
+  const endpointsResource = useCachedQuery('endpoints:all', () => api.listEndpoints());
+  const endpoints: Endpoint[] = useMemo(() => endpointsResource.data?.endpoints ?? [], [endpointsResource.data]);
+  const loading = endpointsResource.loading && endpoints.length === 0;
 
   useEffect(() => {
-    loadEndpoints();
-  }, []);
+    if (!showCreateEndpoint) setFormError(null);
+  }, [showCreateEndpoint]);
 
   const handleProviderChange = (p: EndpointProvider) => {
     setProvider(p);
@@ -54,6 +55,7 @@ export default function Endpoints() {
     e.preventDefault();
     if (!name.trim()) return;
     setIsSubmitting(true);
+    setFormError(null);
     try {
       await api.createEndpoint({
         name: name.trim(),
@@ -61,13 +63,14 @@ export default function Endpoints() {
         base_url: baseUrl.trim() || 'https://api.openai.com/v1',
         api_key: apiKey.trim() || undefined,
       });
+      invalidate('endpoints');
       setShowCreateEndpoint(false);
       setName('');
+      setProvider('openai_compat');
       setBaseUrl('https://api.openai.com/v1');
       setApiKey('');
-      loadEndpoints();
     } catch (err: unknown) {
-      alert(`Failed to save endpoint: ${err instanceof Error ? err.message : String(err)}`);
+      setFormError(`Registration failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -75,11 +78,12 @@ export default function Endpoints() {
 
   const handleDeleteEndpoint = async (id: string) => {
     if (!confirm('Are you sure you want to delete this endpoint? Historical campaign records will remain preserved.')) return;
+    setActionError(null);
     try {
       await api.deleteEndpoint(id);
-      loadEndpoints();
+      invalidate('endpoints');
     } catch (err: unknown) {
-      alert(`Failed to delete endpoint: ${err instanceof Error ? err.message : String(err)}`);
+      setActionError(`Deletion failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -121,9 +125,14 @@ export default function Endpoints() {
     );
   }, [endpoints, searchQuery]);
 
-  const uniqueProvidersCount = useMemo(() => {
-    return new Set(endpoints.map((ep) => ep.provider)).size;
-  }, [endpoints]);
+  const uniqueProvidersCount = useMemo(
+    () => new Set(endpoints.map((ep) => ep.provider)).size,
+    [endpoints]
+  );
+
+  // Real connectivity telemetry derived from this session's tests.
+  const testedCount = Object.keys(testResults).length;
+  const reachableCount = Object.values(testResults).filter((r) => r.status === 'ok').length;
 
   return (
     <section className="flex flex-col w-full hairline-bottom animate-fade-in pb-16" aria-label="Endpoints Registry">
@@ -136,7 +145,7 @@ export default function Endpoints() {
             <ActionButton
               variant="secondary"
               icon={<Play size={14} className="fill-current" />}
-              onClick={() => navigate('/dashboard/campaigns')}
+              onClick={openLauncher}
             >
               LAUNCH CAMPAIGN
             </ActionButton>
@@ -151,83 +160,52 @@ export default function Endpoints() {
         }
       />
 
-      {/* ── 2. Swiss Telemetry Row ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-hairline hairline-bottom select-none">
-        {/* 1.01 TOTAL TARGETS */}
-        <div className="py-5 pr-4 md:py-6 md:pr-6 md:pl-0 flex flex-col justify-between">
-          <div>
-            <div className="text-xs font-mono text-steel mb-1">1.01</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              REGISTERED TARGETS
-            </div>
-          </div>
-          <div>
-            <div className="font-mono text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-              {endpoints.length} <span className="text-steel text-sm font-normal">ENDPOINTS</span>
-            </div>
-            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">
-              {uniqueProvidersCount} PROVIDER INTEGRATIONS
-            </div>
-          </div>
-        </div>
+      {/* ── 2. Telemetry Row (all cells bound to real state) ── */}
+      <TelemetryRow
+        ariaLabel="Endpoint registry metrics"
+        cells={[
+          {
+            index: '1.01',
+            label: 'REGISTERED TARGETS',
+            value: <><span>{endpoints.length}</span><span className="text-steel text-sm font-normal"> ENDPOINTS</span></>,
+            sublabel: `${uniqueProvidersCount} PROVIDER INTEGRATIONS`,
+          },
+          {
+            index: '1.02',
+            label: 'ACTIVE PROTOCOLS',
+            value: <><span>{uniqueProvidersCount}</span><span className="text-steel text-sm font-normal"> TYPES</span></>,
+            sublabel: 'OPENAI · ANTHROPIC · GEMINI · CUSTOM',
+          },
+          {
+            index: '1.03',
+            label: 'REACHABILITY (THIS SESSION)',
+            variant: testedCount > 0 && reachableCount === testedCount ? 'olive' : testedCount > 0 ? 'camel' : 'default',
+            value: testedCount > 0
+              ? <span className={reachableCount === testedCount ? 'text-olive' : 'text-camel'}>{reachableCount}/{testedCount}</span>
+              : <span className="text-slate">—</span>,
+            sublabel: testedCount > 0 ? 'LIVE TEST-PING RESULTS' : 'RUN TEST PING TO MEASURE',
+          },
+          {
+            index: '1.04',
+            label: 'CREDENTIAL ISOLATION',
+            variant: 'static',
+            value: <span className="text-slate">FERNET</span>,
+            sublabel: 'ENCRYPTED AT REST · NEVER ECHOED',
+          },
+        ]}
+      />
 
-        {/* 1.02 ACTIVE PROVIDERS */}
-        <div className="p-4 md:p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs font-mono text-steel mb-1">1.02</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              ACTIVE PROTOCOLS
-            </div>
-          </div>
-          <div>
-            <div className="font-mono text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-              {uniqueProvidersCount} <span className="text-steel text-sm font-normal">TYPES</span>
-            </div>
-            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">
-              OPENAI · ANTHROPIC · GEMINI · CUSTOM
-            </div>
-          </div>
+      {/* ── 3. Action Error Banner ── */}
+      {actionError && (
+        <div className="p-4 bg-maroon/5 border-b border-maroon/30 flex items-center justify-between font-mono animate-fade-in" role="alert">
+          <span className="text-xs font-bold uppercase tracking-wider text-maroon">{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-maroon hover:text-slate cursor-pointer p-1" aria-label="Dismiss error">
+            <X size={14} />
+          </button>
         </div>
+      )}
 
-        {/* 1.03 CONNECTIVITY STATUS */}
-        <div className="p-4 md:p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs font-mono text-steel mb-1">1.03</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              SYSTEM HEALTH
-            </div>
-          </div>
-          <div>
-            <div className="font-mono text-2xl md:text-3xl font-bold text-olive tabular-nums leading-none flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-olive" />
-              OPERATIONAL
-            </div>
-            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">
-              LIVE BYOK ROUTING READY
-            </div>
-          </div>
-        </div>
-
-        {/* 1.04 BYOK CREDENTIALS */}
-        <div className="py-5 pl-4 md:py-6 md:pl-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs font-mono text-steel mb-1">1.04</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              CREDENTIAL ISOLATION
-            </div>
-          </div>
-          <div>
-            <div className="font-mono text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-              ENCRYPTED
-            </div>
-            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">
-              ZERO-RETENTION VAULT
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── 3. Endpoint Registration Drawer ── */}
+      {/* ── 4. Endpoint Registration Drawer ── */}
       {showCreateEndpoint && (
         <form onSubmit={handleCreateEndpoint} className="p-6 md:p-8 bg-linen/60 hairline-bottom space-y-6 font-mono animate-fade-in select-none">
           <div className="flex justify-between items-center pb-2 hairline-bottom">
@@ -243,10 +221,17 @@ export default function Endpoints() {
               type="button"
               onClick={() => setShowCreateEndpoint(false)}
               className="text-steel hover:text-slate p-1 cursor-pointer"
+              aria-label="Close registration form"
             >
               <X size={16} />
             </button>
           </div>
+
+          {formError && (
+            <div className="p-3 bg-maroon-muted border border-maroon/30 text-xs font-bold uppercase text-maroon" role="alert">
+              {formError}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -303,7 +288,7 @@ export default function Endpoints() {
                 onChange={(e) => setApiKey(e.target.value)}
                 className="w-full bg-ivory border border-hairline px-3 py-2 text-xs font-mono text-slate focus:outline-none focus:border-slate shadow-2xs"
               />
-              <span className="text-[9px] text-taupe mt-0.5 block">Encrypted at rest. Never echoed back to the browser interface.</span>
+              <span className="text-[9px] text-taupe mt-0.5 block">Encrypted at rest (Fernet). Only a masked tail is ever returned.</span>
             </div>
           </div>
 
@@ -318,11 +303,12 @@ export default function Endpoints() {
         </form>
       )}
 
-      {/* ── 4. Search & Filter Omnibar ── */}
+      {/* ── 5. Search Omnibar ── */}
       <div className="w-full hairline-bottom select-none py-3 font-mono">
         <div className="relative w-full">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-steel pointer-events-none" />
           <input
+            ref={searchInputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -334,6 +320,7 @@ export default function Endpoints() {
             <button
               onClick={() => setSearchQuery('')}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-steel hover:text-slate p-0.5 cursor-pointer"
+              aria-label="Clear search"
             >
               <X size={13} />
             </button>
@@ -341,7 +328,7 @@ export default function Endpoints() {
         </div>
       </div>
 
-      {/* ── 5. Endpoints Swiss Ledger ── */}
+      {/* ── 6. Endpoints Swiss Ledger ── */}
       {loading ? (
         <div className="py-16 text-center font-mono text-xs text-steel">
           LOADING REGISTERED TARGET ENDPOINTS

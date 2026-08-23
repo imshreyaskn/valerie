@@ -1,9 +1,9 @@
-import Nav from '../components/Nav';
-import Hero from '../components/Hero';
-import TerminalSimulator from '../components/TerminalSimulator';
-import Architecture from '../components/Architecture';
-import Specifications from '../components/Specifications';
-import Footer from '../components/Footer';
+import Nav from '../components/marketing/Nav';
+import Hero from '../components/marketing/Hero';
+import TerminalSimulator from '../components/marketing/TerminalSimulator';
+import Architecture from '../components/marketing/Architecture';
+import Specifications from '../components/marketing/Specifications';
+import Footer from '../components/marketing/Footer';
 
 export default function Landing() {
   return (

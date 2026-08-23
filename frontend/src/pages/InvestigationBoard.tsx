@@ -1,56 +1,22 @@
 import React, { useState, useMemo } from 'react';
 import { PageHeader, ActionButton, StatusBadge } from '../components/ui';
 import { useNavigate } from 'react-router-dom';
-import { getInvestigationCases } from '../utils/investigationCases';
+import { getInvestigationCases, saveCases, setCaseDisposition, updateCaseNotes as persistCaseNotes, removeCase } from '../utils/investigationCases';
+import type { ForensicCaseItem, Disposition } from '../types/domain';
 import {
   GitBranch, Plus, Download, Trash2, Edit3, Check, FileText,
   Copy, Layers, Shield, AlertTriangle
 } from 'lucide-react';
 
-export type Disposition = 'confirmed' | 'needs-review' | 'duplicate' | 'false-positive';
-
-export interface ForensicCaseItem {
-  id: string;
-  taskId: string;
-  runId: string;
-  title: string;
-  domain: string;
-  endpoint: string;
-  technique: string;
-  harmCategory: string;
-  riskScore: number;
-  disposition: Disposition;
-  seedPrompt: string;
-  adversarialPrompt: string;
-  targetResponse: string;
-  judgeReasoning: string;
-  vectorScores: {
-    directHarm: number;
-    toxicity: number;
-    pii: number;
-    hallucination: number;
-    policyBreach: number;
-  };
-  analystNotes: string;
-  pinnedAt: string;
-  updatedAt: string;
-}
-
-const STORAGE_KEY = 'valerie_investigation_cases';
 
 export default function InvestigationBoard() {
   const navigate = useNavigate();
   // Shared case store — Findings pins land here via investigationCases util.
   const [cases, setCases] = useState<ForensicCaseItem[]>(() => getInvestigationCases());
 
-  // Sync to localStorage whenever cases change
+  // Sync to localStorage whenever cases change (single writer: shared util).
   React.useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cases));
-      window.dispatchEvent(new Event('valerie-investigation-cases-changed'));
-    } catch (e) {
-      console.warn('Failed to save investigation cases to localStorage:', e);
-    }
+    saveCases(cases);
   }, [cases]);
 
   const [activeTab, setActiveTab] = useState<'canvas' | 'compare'>('canvas');
@@ -74,25 +40,17 @@ export default function InvestigationBoard() {
     : '0.00';
 
   const handleUpdateDisposition = (id: string, newDisp: Disposition) => {
-    setCases((prev) =>
-      prev.map((c) =>
-        c.id === id ? { ...c, disposition: newDisp, updatedAt: new Date().toISOString() } : c
-      )
-    );
+    setCases(setCaseDisposition(id, newDisp));
   };
 
   const handleSaveNotes = (id: string) => {
-    setCases((prev) =>
-      prev.map((c) =>
-        c.id === id ? { ...c, analystNotes: tempNotes, updatedAt: new Date().toISOString() } : c
-      )
-    );
+    setCases(persistCaseNotes(id, tempNotes));
     setEditingNotesId(null);
   };
 
   const handleRemoveCase = (id: string) => {
     if (!confirm('Remove this pinned evidence specimen from the investigation board?')) return;
-    setCases((prev) => prev.filter((c) => c.id !== id));
+    setCases(removeCase(id));
   };
 
   const handleCopySpecimen = (id: string, text: string) => {
@@ -197,9 +155,9 @@ export default function InvestigationBoard() {
             <ActionButton
               variant="primary"
               icon={<Plus size={14} strokeWidth={2.5} />}
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/dashboard/findings')}
             >
-              PIN FROM MISSION CONTROL
+              PIN FROM FINDINGS EXPLORER
             </ActionButton>
           </div>
         }
@@ -365,10 +323,13 @@ export default function InvestigationBoard() {
           <GitBranch className="w-6 h-6 text-steel/50 mx-auto mb-2.5" strokeWidth={1.5} />
           <p className="text-xs font-semibold uppercase tracking-[0.02em] text-slate">NO PINNED EVIDENCE SPECIMENS</p>
           <p className="text-[11px] text-steel mt-1 max-w-md mx-auto font-sans">
-            Pin task branches from Mission Control to assemble forensic case studies and generate compliance reports.
+            Pin findings from the Findings Explorer to assemble forensic case studies and generate compliance reports.
           </p>
           <div className="mt-4">
-            <ActionButton variant="primary" onClick={() => navigate('/dashboard')}>
+            <ActionButton variant="primary" onClick={() => navigate('/dashboard/findings')}>
+              PIN FROM FINDINGS EXPLORER →
+            </ActionButton>
+            <ActionButton variant="ghost" onClick={() => navigate('/dashboard')}>
               EXPLORE MISSION CONTROL →
             </ActionButton>
           </div>

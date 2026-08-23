@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, GitCompare } from 'lucide-react';
 import type { LiveTask } from '../../types/domain';
 import { TaskStateBadge } from './TaskStateBadge';
 import { VTooltip } from '../ui';
@@ -10,6 +10,7 @@ interface TaskRowProps {
   isSelected: boolean;
   density: 'comfortable' | 'compact' | 'research';
   onClick: () => void;
+  /** Opens the prompt-evolution lineage diff for this task. */
   onOpenDiff?: () => void;
 }
 
@@ -19,6 +20,7 @@ export const TaskRow = memo<TaskRowProps>(({
   isSelected,
   density,
   onClick,
+  onOpenDiff,
 }) => {
   const indexStr = String(index + 1).padStart(2, '0');
 
@@ -132,8 +134,19 @@ export const TaskRow = memo<TaskRowProps>(({
         </span>
       </div>
 
-      {/* 7. Quick Inspect Chevron */}
-      <div className={`${padClass} flex items-center justify-center text-steel group-hover:text-slate transition-colors`}>
+      {/* 7. Lineage Diff + Quick Inspect */}
+      <div className={`${padClass} flex items-center justify-center gap-1 text-steel group-hover:text-slate transition-colors`}>
+        {onOpenDiff && (
+          <VTooltip content="Open evolution lineage diff">
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenDiff(); }}
+              className="p-0.5 hover:text-maroon transition-colors cursor-pointer"
+              aria-label={`Open lineage diff for task ${task.task_id}`}
+            >
+              <GitCompare size={13} />
+            </button>
+          </VTooltip>
+        )}
         <ChevronRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
       </div>
     </div>

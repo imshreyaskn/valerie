@@ -3,15 +3,17 @@ import { usePipelineStore } from '../stores/pipelineStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useRunStream } from '../hooks/useRunStream';
 import { CommandBar, InstrumentCluster, ExecutionCircuit } from '../components/mission-control/CommandBar';
-import type { FilterState } from '../components/mission-control/MissionControlFilters';
+import type { FilterState } from '../types/filters';
+import { DEFAULT_FILTERS, matchesFilters, hasActiveFilters as filtersActive } from '../types/filters';
 import { SpecimenLedger } from '../components/mission-control/SpecimenLedger';
 import { IntelligenceFeed } from '../components/IntelligenceFeed';
-import { PromptDiffModal } from '../components/PromptDiffModal';
 import { HERO_ASCII_ART } from '../constants/ascii';
+import { AlertTriangle, X } from 'lucide-react';
 
 export default function Overview() {
   const { setActiveRun, activeRunId } = usePipelineStore();
   const openInspector  = useWorkspaceStore(s => s.openInspector);
+  const openPromptDiff = useWorkspaceStore(s => s.openPromptDiff);
   const selectedEntity = useWorkspaceStore(s => s.selectedEntity);
 
   useRunStream(activeRunId || 'all');
@@ -21,64 +23,31 @@ export default function Overview() {
   }, [activeRunId, setActiveRun]);
 
   const liveTasks  = usePipelineStore(s => s.liveTasks);
+  const feedCount  = usePipelineStore(s => s.intelligenceFeed.length);
   const tasksArray = useMemo(() => Object.values(liveTasks), [liveTasks]);
 
-  const [diffTaskId, setDiffTaskId] = useState<string | null>(null);
-  const [viewMode, setViewMode]     = useState<'table' | 'grid'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+  // Compact-viewports intel drawer: the fixed right rail is lg+; below that
+  // alerts remain reachable instead of silently hidden.
+  const [mobileFeedOpen, setMobileFeedOpen] = useState(false);
 
-  const [filters, setFilters] = useState<FilterState>({
-    status: 'ALL', technique: 'ALL', harmType: 'ALL', minRisk: 0, searchQuery: '',
-  });
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
 
   const handleFilterChange  = useCallback((f: Partial<FilterState>) => setFilters(p => ({ ...p, ...f })), []);
-  const handleResetFilters  = useCallback(() => setFilters({ status: 'ALL', technique: 'ALL', harmType: 'ALL', minRisk: 0, searchQuery: '' }), []);
+  const handleResetFilters  = useCallback(() => setFilters(DEFAULT_FILTERS), []);
 
-  const availableTechniques = useMemo(() => {
-    const s = new Set<string>();
-    tasksArray.forEach(t => t.technique && s.add(t.technique));
-    return Array.from(s).sort();
-  }, [tasksArray]);
-
-  const availableHarmTypes = useMemo(() => {
-    const s = new Set<string>();
-    tasksArray.forEach(t => t.harm_type && s.add(t.harm_type));
-    return Array.from(s).sort();
-  }, [tasksArray]);
-
-  const counts = useMemo(() => ({
-    all:          tasksArray.length,
-    breakthrough: tasksArray.filter(t => t.is_breakthrough || t.status === 'breakthrough').length,
-    defended:     tasksArray.filter(t => t.status === 'defended' || (t.status === 'completed' && !t.is_breakthrough)).length,
-    active:       tasksArray.filter(t => ['mutating', 'transmitting', 'scoring'].includes(t.status)).length,
-    queued:       tasksArray.filter(t => t.status === 'queued').length,
-    unresolved:   tasksArray.filter(t => t.status === 'unresolved' || t.status === 'failed').length,
-  }), [tasksArray]);
-
-  const filteredTasks = useMemo(() => tasksArray.filter(task => {
-    if (filters.status !== 'ALL') {
-      if (filters.status === 'BREAKTHROUGH' && !task.is_breakthrough && task.status !== 'breakthrough') return false;
-      if (filters.status === 'DEFENDED' && task.status !== 'defended' && (task.status !== 'completed' || task.is_breakthrough)) return false;
-      if (filters.status === 'ACTIVE' && !['mutating', 'transmitting', 'scoring'].includes(task.status)) return false;
-      if (filters.status === 'QUEUED' && task.status !== 'queued') return false;
-      if (filters.status === 'UNRESOLVED' && task.status !== 'unresolved' && task.status !== 'failed') return false;
-    }
-    if (filters.technique !== 'ALL' && task.technique !== filters.technique) return false;
-    if (filters.harmType !== 'ALL' && task.harm_type !== filters.harmType) return false;
-    if (filters.minRisk > 0 && (task.risk_score || 0) < filters.minRisk) return false;
-    if (filters.searchQuery.trim()) {
-      const q = filters.searchQuery.toLowerCase();
-      if (![task.prompt, task.adversarial_prompt, task.task_id, task.technique, task.harm_type].some(v => v?.toLowerCase().includes(q))) return false;
-    }
-    return true;
-  }), [tasksArray, filters]);
+  const filteredTasks = useMemo(
+    () => tasksArray.filter(task => matchesFilters(task, filters)),
+    [tasksArray, filters]
+  );
 
   const selectedTaskId = selectedEntity?.type === 'task' ? selectedEntity.id : null;
   const handleSelectTask = useCallback((id: string) => openInspector({ type: 'task', id }), [openInspector]);
-  const hasActiveFilters = filters.status !== 'ALL' || filters.technique !== 'ALL' || filters.harmType !== 'ALL' || filters.minRisk > 0 || filters.searchQuery.trim() !== '';
+  const hasActiveFilters = filtersActive(filters);
 
   return (
     // Full-viewport two-pane layout — no scrolling at this level
-    <div className="flex flex-col h-full min-h-0 animate-fade-in w-full">
+    <div className="flex flex-col h-full min-h-0 animate-fade-in w-full relative">
 
       {/* ── Valerie ASCII Specimen Logo Header ── */}
       <div className="w-full flex items-center justify-center py-6 mb-4 select-none overflow-hidden shrink-0">
@@ -91,14 +60,11 @@ export default function Overview() {
         </pre>
       </div>
 
-      {/* ── Unified Command Bar (title + scope + search + filters) ── */}
+      {/* ── Unified Command Bar (title + scope + search + launch + filters) ── */}
       <CommandBar
         filters={filters}
         onFilterChange={handleFilterChange}
         onResetFilters={handleResetFilters}
-        counts={counts}
-        availableTechniques={availableTechniques}
-        availableHarmTypes={availableHarmTypes}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
       />
@@ -108,9 +74,20 @@ export default function Overview() {
 
       {/* ── Execution Circuit ── */}
       <ExecutionCircuit
-        onFilterByStatus={status => handleFilterChange({ status })}
+        onFilterByStatus={status => handleFilterChange({ status: status as FilterState['status'] })}
         activeStatusFilter={filters.status}
       />
+
+      {/* ── Compact-viewport intel trigger (rail is lg+) ── */}
+      {feedCount > 0 && (
+        <button
+          onClick={() => setMobileFeedOpen(true)}
+          className="lg:hidden flex items-center gap-2 px-3 py-2 hairline-bottom bg-camel-muted text-camel font-mono text-[10px] font-bold uppercase tracking-wider cursor-pointer shrink-0"
+        >
+          <AlertTriangle size={12} />
+          {feedCount} INTEL ALERT{feedCount === 1 ? '' : 'S'} — VIEW FEED
+        </button>
+      )}
 
       {/* ── Main split-pane: Ledger (left) + Intel Feed (right) ── */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -121,27 +98,38 @@ export default function Overview() {
             tasks={filteredTasks}
             selectedTaskId={selectedTaskId}
             onSelectTask={handleSelectTask}
-            onOpenDiff={id => setDiffTaskId(id)}
+            onOpenDiff={(taskId) => openPromptDiff(activeRunId || 'all', taskId)}
             viewMode={viewMode}
             hasActiveFilters={hasActiveFilters}
             onResetFilters={handleResetFilters}
           />
         </div>
 
-        {/* Intelligence Feed — fixed-width right panel, scrolls independently */}
-        <div className="hidden xl:flex xl:w-80 shrink-0 flex-col min-h-0">
+        {/* Intelligence Feed — fixed-width right rail (lg+) */}
+        <div className="hidden lg:flex lg:w-80 shrink-0 flex-col min-h-0">
           <IntelligenceFeed />
         </div>
       </div>
 
-      {/* Prompt evolution diff modal */}
-      {diffTaskId && (
-        <PromptDiffModal
-          runId={activeRunId || 'all'}
-          taskId={diffTaskId}
-          open={!!diffTaskId}
-          onOpenChange={open => !open && setDiffTaskId(null)}
-        />
+      {/* Intel drawer for compact viewports */}
+      {mobileFeedOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-label="Intelligence feed">
+          <div
+            className="absolute inset-0 bg-slate/40 backdrop-blur-sm"
+            onClick={() => setMobileFeedOpen(false)}
+          />
+          <div className="absolute top-0 right-0 h-full w-[22rem] max-w-[92vw] bg-parchment border-l border-hairline shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 bg-linen hairline-bottom">
+              <span className="font-mono text-[10px] font-bold tracking-widest uppercase text-slate">INTELLIGENCE FEED</span>
+              <button onClick={() => setMobileFeedOpen(false)} className="text-steel hover:text-slate cursor-pointer p-1" aria-label="Close intelligence feed">
+                <X size={14} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-0">
+              <IntelligenceFeed />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

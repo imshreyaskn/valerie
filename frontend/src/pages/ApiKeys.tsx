@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../utils/api';
 import { Trash2, Copy, Check, Key, X, Plus } from 'lucide-react';
 import { PageHeader, ActionButton } from '../components/ui';
+import { TelemetryRow } from '../components/ui/TelemetryRow';
 import type { ApiKeyItem, CreatedApiKey } from '../types/domain';
 
 export default function ApiKeys() {
@@ -83,56 +84,39 @@ export default function ApiKeys() {
         }
       />
 
-      {/* ── 2. Swiss Telemetry Row ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-hairline hairline-bottom">
-        <div className="py-5 pr-4 md:py-6 md:pr-6 md:pl-0 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.01</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              ACTIVE ACCESS TOKENS
-            </div>
-          </div>
-          <div className="text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-            {keys.length} <span className="text-steel text-sm font-normal">KEYS</span>
-          </div>
-        </div>
-
-        <div className="p-4 md:p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.02</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              AUTHENTICATION PROTOCOL
-            </div>
-          </div>
-          <div className="text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-            BEARER JWT
-          </div>
-        </div>
-
-        <div className="p-4 md:p-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.03</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              RATE-LIMIT HEADROOM
-            </div>
-          </div>
-          <div className="text-2xl md:text-3xl font-bold text-olive tabular-nums leading-none">
-            UNRESTRICTED
-          </div>
-        </div>
-
-        <div className="py-5 pl-4 md:py-6 md:pl-6 flex flex-col justify-between">
-          <div>
-            <div className="text-xs text-steel mb-1">1.04</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
-              VAULT INTEGRITY
-            </div>
-          </div>
-          <div className="text-2xl md:text-3xl font-bold text-slate tabular-nums leading-none">
-            SHA-256 HASHED
-          </div>
-        </div>
-      </div>
+      {/* ── 2. Telemetry Row (configuration facts, styled static) ── */}
+      <TelemetryRow
+        ariaLabel="Key vault configuration"
+        cells={[
+          {
+            index: '1.01',
+            label: 'ACTIVE ACCESS TOKENS',
+            value: <><span>{keys.length}</span><span className="text-steel text-sm font-normal"> KEYS</span></>,
+            sublabel: 'CI/CD WORKSTATION CREDENTIALS',
+          },
+          {
+            index: '1.02',
+            label: 'AUTHENTICATION PROTOCOL',
+            variant: 'static',
+            value: <span className="text-slate">HS256 JWT</span>,
+            sublabel: 'BEARER · 24H EXPIRY',
+          },
+          {
+            index: '1.03',
+            label: 'ISSUANCE THROTTLE',
+            variant: 'static',
+            value: <span className="text-slate">10/MIN</span>,
+            sublabel: 'SERVER-ENFORCED RATE LIMIT',
+          },
+          {
+            index: '1.04',
+            label: 'VAULT INTEGRITY',
+            variant: 'static',
+            value: <span className="text-slate">PBKDF2</span>,
+            sublabel: 'SHA-256 HASHED AT REST',
+          },
+        ]}
+      />
 
       {/* ── 3. Error Banner ── */}
       {actionError && (

@@ -1,9 +1,8 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { usePipelineStore } from '../stores/pipelineStore';
 import { TaskInspector } from './mission-control/TaskInspector';
-import { PromptDiffModal } from './PromptDiffModal';
 
 /**
  * Forensic Inspector — the right-side evidence panel.
@@ -17,12 +16,11 @@ export function Inspector() {
     selectedEntity,
     closeInspector,
     setInspectorWidth,
+    openPromptDiff,
   } = useWorkspaceStore();
 
   const liveTasks = usePipelineStore((s) => s.liveTasks);
-  const activeRunId = usePipelineStore((s) => s.activeRunId);
 
-  const [diffModalOpen, setDiffModalOpen] = useState(false);
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
 
   // Escape closes the inspector
@@ -127,7 +125,9 @@ export function Inspector() {
           {selectedTask ? (
             <TaskInspector
               task={selectedTask}
-              onOpenDeepDiff={() => setDiffModalOpen(true)}
+              onOpenDeepDiff={() =>
+                openPromptDiff(selectedTask.run_id || 'all', selectedTask.task_id)
+              }
             />
           ) : selectedEntity ? (
             <div className="p-6 text-center font-mono">
@@ -147,15 +147,6 @@ export function Inspector() {
           )}
         </div>
       </aside>
-
-      {selectedTask && diffModalOpen && (
-        <PromptDiffModal
-          runId={selectedTask.run_id || activeRunId || 'all'}
-          taskId={selectedTask.task_id}
-          open={diffModalOpen}
-          onOpenChange={setDiffModalOpen}
-        />
-      )}
     </>
   );
 }

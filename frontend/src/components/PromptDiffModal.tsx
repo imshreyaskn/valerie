@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { api } from '../utils/api';
+import { useWorkspaceStore } from '../stores/workspaceStore';
 import { ReactFlow, Background, Controls, MarkerType } from '@xyflow/react';
 import type { Node, Edge } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -63,8 +64,8 @@ export const PromptDiffModal = ({
       ),
     },
     style: {
-      background: selectedNodeId === node.id ? '#EDE8E3' : '#FFFFFF',
-      border: `1px solid ${node.risk_score >= 0.7 ? '#C0392B' : '#D4CCC6'}`,
+      background: selectedNodeId === node.id ? 'var(--color-linen)' : 'var(--color-ivory)',
+      border: `1px solid ${node.risk_score >= 0.7 ? 'var(--color-maroon)' : 'var(--color-hairline)'}`,
       borderRadius: '6px',
       cursor: 'pointer',
     },
@@ -77,8 +78,8 @@ export const PromptDiffModal = ({
       source: node.parent_prompt_id as string,
       target: node.id,
       label: `Dist: ${node.semantic_distance_from_parent.toFixed(2)}`,
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#727481' },
-      style: { stroke: '#727481', strokeWidth: 1.5 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: 'var(--color-steel)' },
+      style: { stroke: 'var(--color-steel)', strokeWidth: 1.5 },
     }));
 
   const selectedNode = lineage.find(n => n.id === selectedNodeId) ?? null;
@@ -107,7 +108,7 @@ export const PromptDiffModal = ({
             </div>
             <div className="flex-1 relative">
               <ReactFlow nodes={nodes} edges={edges} fitView>
-                <Background color="#D4CCC6" gap={16} />
+                <Background color="var(--color-hairline)" gap={16} />
                 <Controls />
               </ReactFlow>
             </div>
@@ -185,3 +186,23 @@ export const PromptDiffModal = ({
     </Dialog.Root>
   );
 };
+
+// ── Layout-level host ─────────────────────────────────────────────────────────
+// The single PromptDiffModal instance for the whole app. Any surface (task
+// dossier, ledger row, inspector) opens it through workspaceStore.openPromptDiff,
+// guaranteeing one runId-resolution path.
+export function PromptDiffModalHost() {
+  const promptDiff = useWorkspaceStore((s) => s.promptDiff);
+  const closePromptDiff = useWorkspaceStore((s) => s.closePromptDiff);
+
+  if (!promptDiff.open || !promptDiff.runId || !promptDiff.taskId) return null;
+
+  return (
+    <PromptDiffModal
+      runId={promptDiff.runId}
+      taskId={promptDiff.taskId}
+      open={promptDiff.open}
+      onOpenChange={(open) => { if (!open) closePromptDiff(); }}
+    />
+  );
+}

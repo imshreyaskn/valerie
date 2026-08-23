@@ -3,6 +3,8 @@ import FloatingNav from './FloatingNav';
 import { CommandStrip } from './CommandStrip';
 import { CommandPalette } from './CommandPalette';
 import { Inspector } from './Inspector';
+import { CampaignLauncherHost } from './campaigns/CampaignLauncher';
+import { PromptDiffModalHost } from './PromptDiffModal';
 
 export default function Layout() {
   const location = useLocation();
@@ -38,6 +40,12 @@ export default function Layout() {
 
       {/* Global Command Palette Overlay (Cmd+K) */}
       <CommandPalette />
+
+      {/* Global campaign dispatch flow (opened from any screen) */}
+      <CampaignLauncherHost />
+
+      {/* Single prompt-evolution diff instance for the whole app */}
+      <PromptDiffModalHost />
     </div>
   );
 }

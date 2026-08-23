@@ -1,38 +1,37 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { usePipelineStore } from '../../stores/pipelineStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useLauncherStore } from '../../stores/launcherStore';
 import { api } from '../../utils/api';
 import type { Run } from '../../types/domain';
+import type { FilterState } from '../../types/filters';
+import { computeTaskMetrics } from '../../utils/taskMetrics';
+import { useHotkeyFocus } from '../../hooks/useHotkeyFocus';
+import { TelemetryRow } from '../ui';
+import { SegmentFilter } from '../ui/SegmentFilter';
 import { VTooltip } from '../ui';
 import {
   ChevronDown, Search, X, List, LayoutGrid, RotateCcw,
-  RefreshCw, AlertTriangle, Check
+  RefreshCw, AlertTriangle, Check, Plus
 } from 'lucide-react';
-import type { FilterState } from './MissionControlFilters';
 
 interface CommandBarProps {
   filters: FilterState;
   onFilterChange: (f: Partial<FilterState>) => void;
   onResetFilters: () => void;
-  counts: { all: number; breakthrough: number; defended: number; active: number; queued: number; unresolved: number };
-  availableTechniques: string[];
-  availableHarmTypes: string[];
   viewMode: 'table' | 'grid';
   onViewModeChange: (m: 'table' | 'grid') => void;
 }
 
-// ── Instrument Cluster (formerly Swiss Telemetry Row) ──────────────────────
+// ── Instrument Cluster (Swiss telemetry) ──────────────────────────────────────
 const InstrumentCluster: React.FC = () => {
   const liveTasks      = usePipelineStore(s => s.liveTasks);
   const runStats       = usePipelineStore(s => s.runStats);
   const activeRunMeta  = usePipelineStore(s => s.activeRunMeta);
   const streamHealth   = usePipelineStore(s => s.streamHealth);
 
-  const tasks = Object.values(liveTasks);
-  const total = Math.max(tasks.length, runStats.total_tasks || 0);
-  const breakthroughs = tasks.filter(t => t.is_breakthrough || t.status === 'breakthrough').length;
-  const defended = tasks.filter(t => t.status === 'defended' || (t.status === 'completed' && !t.is_breakthrough)).length;
-  const completed = breakthroughs + defended;
+  const tasks = useMemo(() => Object.values(liveTasks), [liveTasks]);
+  const metrics = useMemo(() => computeTaskMetrics(tasks, runStats), [tasks, runStats]);
 
   const [elapsed, setElapsed] = useState('00m 00s');
   useEffect(() => {
@@ -51,71 +50,49 @@ const InstrumentCluster: React.FC = () => {
     }
   }, [runStats.status, runStats.started_at, activeRunMeta?.started_at]);
 
-  const instruments = [
+  const cells = [
     {
-      ref: '1.01', label: 'BRANCHES',
-      value: <><span>{completed}</span><span className="text-steel text-lg font-normal"> / {total || '—'}</span></>,
-      sub: total > 0 ? `${Math.round((completed / total) * 100)}% COVERAGE` : 'STANDBY',
-      color: 'text-slate',
+      index: '1.01',
+      label: 'BRANCHES',
+      value: <><span>{metrics.completed}</span><span className="text-steel text-lg font-normal"> / {metrics.total || '—'}</span></>,
+      sublabel: metrics.total > 0 ? `${metrics.coveragePct}% COVERAGE` : 'STANDBY',
     },
     {
-      ref: '1.02', label: 'BREAKTHROUGHS',
-      value: <span className={breakthroughs > 0 ? 'text-maroon' : 'text-slate'}>{breakthroughs > 0 ? '◆ ' : ''}{breakthroughs}</span>,
-      sub: completed > 0 ? `${((breakthroughs / completed) * 100).toFixed(1)}% BYPASS` : '0% OBSERVED',
-      color: breakthroughs > 0 ? 'text-maroon' : 'text-slate',
+      index: '1.02',
+      label: 'BREAKTHROUGHS',
+      value: <span className={metrics.breakthroughs > 0 ? 'text-maroon' : 'text-slate'}>{metrics.breakthroughs > 0 ? '◆ ' : ''}{metrics.breakthroughs}</span>,
+      sublabel: metrics.completed > 0 ? `${metrics.bypassPct}% BYPASS` : '0% OBSERVED',
     },
     {
-      ref: '1.03', label: 'DEFENDED',
-      value: <span className={defended > 0 ? 'text-olive' : 'text-slate'}>{defended > 0 ? '✓ ' : ''}{defended}</span>,
-      sub: completed > 0 ? `${((defended / completed) * 100).toFixed(1)}% RESISTANCE` : '100% CLEAN',
-      color: defended > 0 ? 'text-olive' : 'text-slate',
+      index: '1.03',
+      label: 'DEFENDED',
+      value: <span className={metrics.defended > 0 ? 'text-olive' : 'text-slate'}>{metrics.defended > 0 ? '✓ ' : ''}{metrics.defended}</span>,
+      sublabel: metrics.completed > 0 ? `${metrics.resistancePct}% RESISTANCE` : '100% CLEAN',
     },
     {
-      ref: '1.04', label: 'MEAN RISK',
-      value: <span className={runStats.avg_risk_score >= 0.7 ? 'text-maroon' : runStats.avg_risk_score >= 0.4 ? 'text-camel' : 'text-slate'}>
-        {runStats.avg_risk_score.toFixed(2)}
-      </span>,
-      sub: runStats.avg_risk_score >= 0.7 ? 'CRITICAL' : runStats.avg_risk_score >= 0.4 ? 'ELEVATED' : 'NOMINAL',
-      color: 'text-slate',
+      index: '1.04',
+      label: 'MEAN RISK',
+      value: (
+        <span className={runStats.avg_risk_score >= 0.7 ? 'text-maroon' : runStats.avg_risk_score >= 0.4 ? 'text-camel' : 'text-slate'}>
+          {runStats.avg_risk_score.toFixed(2)}
+        </span>
+      ),
+      sublabel: runStats.avg_risk_score >= 0.7 ? 'CRITICAL' : runStats.avg_risk_score >= 0.4 ? 'ELEVATED' : 'NOMINAL',
     },
     {
-      ref: '1.05', label: 'RUN DURATION',
+      index: '1.05',
+      label: 'RUN DURATION',
       value: <span className="text-slate">{elapsed}</span>,
-      sub: <span className="flex items-center gap-1.5">
-        <span className={`w-1.5 h-1.5 rounded-full ${streamHealth === 'connected' ? 'bg-olive animate-pulse-dot' : streamHealth === 'paused' ? 'bg-camel' : 'bg-steel/40'}`} />
-        {streamHealth === 'connected' ? 'STREAM ACTIVE' : streamHealth === 'paused' ? 'STREAM PAUSED' : runStats.status.toUpperCase()}
-      </span>,
-      color: 'text-slate',
+      sublabel: (
+        <span className="flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${streamHealth === 'connected' ? 'bg-olive animate-pulse-dot' : streamHealth === 'paused' ? 'bg-camel' : 'bg-steel/40'}`} />
+          {streamHealth === 'connected' ? 'STREAM ACTIVE' : streamHealth === 'paused' ? 'STREAM PAUSED' : runStats.status.toUpperCase()}
+        </span>
+      ),
     },
   ];
 
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-5 divide-y md:divide-y-0 md:divide-x divide-hairline hairline-bottom select-none">
-      {instruments.map((inst, i) => (
-        <div
-          key={inst.ref}
-          className={`flex flex-col justify-between ${
-            i === 0
-              ? 'py-5 pr-4 md:py-6 md:pr-6 md:pl-0'
-              : i === 4
-              ? 'py-5 pl-4 md:py-6 md:pl-6 max-md:col-span-2'
-              : 'p-4 md:p-6'
-          }`}
-        >
-          <div>
-            <div className="text-xs font-mono text-steel mb-1">{inst.ref}</div>
-            <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">{inst.label}</div>
-          </div>
-          <div>
-            <div className="font-mono text-2xl md:text-3xl font-bold tabular-nums leading-none">
-              {inst.value}
-            </div>
-            <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">{inst.sub}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+  return <TelemetryRow cells={cells} ariaLabel="Execution instruments" />;
 };
 
 // ── Execution Circuit Progress Bar ─────────────────────────────────────────
@@ -126,38 +103,33 @@ export const ExecutionCircuit: React.FC<{
   const liveTasks = usePipelineStore(s => s.liveTasks);
   const runStats  = usePipelineStore(s => s.runStats);
 
-  const tasks = Object.values(liveTasks);
-  const total = Math.max(tasks.length, runStats.total_tasks || 0);
-  const pct = (n: number) => total > 0 ? (n / total) * 100 : 0;
+  const tasks = useMemo(() => Object.values(liveTasks), [liveTasks]);
+  const m = useMemo(() => computeTaskMetrics(tasks, runStats), [tasks, runStats]);
+  const pct = (n: number) => m.total > 0 ? (n / m.total) * 100 : 0;
 
-  const queued       = tasks.filter(t => t.status === 'queued').length;
   const mutating     = tasks.filter(t => t.status === 'mutating').length;
   const transmitting = tasks.filter(t => t.status === 'transmitting').length;
   const scoring      = tasks.filter(t => t.status === 'scoring').length;
-  const breakthroughs = tasks.filter(t => t.is_breakthrough || t.status === 'breakthrough').length;
-  const defended     = tasks.filter(t => t.status === 'defended' || (t.status === 'completed' && !t.is_breakthrough)).length;
-  const unresolved   = tasks.filter(t => t.status === 'unresolved' || t.status === 'failed').length;
-  const completed    = breakthroughs + defended;
 
   const segments = [
-    { label: 'QUEUED',       count: queued,       color: 'bg-hairline',    filter: 'QUEUED' },
-    { label: 'MUTATING',     count: mutating,     color: 'bg-steel/60',    filter: 'ACTIVE' },
-    { label: 'TRANSMITTING', count: transmitting, color: 'bg-powder',      filter: 'ACTIVE' },
-    { label: 'SCORING',      count: scoring,      color: 'bg-camel',       filter: 'ACTIVE' },
-    { label: 'DEFENDED',     count: defended,     color: 'bg-olive',       filter: 'DEFENDED' },
-    { label: 'BREAKTHROUGH',  count: breakthroughs, color: 'bg-maroon',   filter: 'BREAKTHROUGH' },
-    { label: 'UNRESOLVED',   count: unresolved,   color: 'bg-maroon/40',  filter: 'UNRESOLVED' },
-  ].filter(s => s.count > 0 || total === 0);
+    { label: 'QUEUED',       count: m.queued,        color: 'bg-hairline',    filter: 'QUEUED' },
+    { label: 'MUTATING',     count: mutating,        color: 'bg-steel/60',    filter: 'ACTIVE' },
+    { label: 'TRANSMITTING', count: transmitting,    color: 'bg-powder',      filter: 'ACTIVE' },
+    { label: 'SCORING',      count: scoring,         color: 'bg-camel',       filter: 'ACTIVE' },
+    { label: 'DEFENDED',     count: m.defended,      color: 'bg-olive',       filter: 'DEFENDED' },
+    { label: 'BREAKTHROUGH', count: m.breakthroughs, color: 'bg-maroon',      filter: 'BREAKTHROUGH' },
+    { label: 'UNRESOLVED',   count: m.unresolved,    color: 'bg-maroon/40',   filter: 'UNRESOLVED' },
+  ].filter(s => s.count > 0 || m.total === 0);
 
   return (
     <div className="py-3 hairline-bottom space-y-1.5">
       <div className="flex items-center justify-between font-mono text-[10px] text-steel mb-1">
         <span className="uppercase font-bold text-slate tracking-wider">EXECUTION CIRCUIT</span>
-        <span className="tabular-nums">{completed} / {total || '—'} COMPLETE ({total > 0 ? Math.round((completed / total) * 100) : 0}%)</span>
+        <span className="tabular-nums">{m.completed} / {m.total || '—'} COMPLETE ({m.coveragePct}%)</span>
       </div>
 
       <div className="h-2 w-full bg-linen flex overflow-hidden">
-        {total === 0 ? (
+        {m.total === 0 ? (
           <div className="w-full h-full animate-sweep" />
         ) : (
           segments.map(seg => (
@@ -173,52 +145,78 @@ export const ExecutionCircuit: React.FC<{
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[10px]">
-        <button onClick={() => onFilterByStatus?.('ALL')} className={`transition-colors cursor-pointer ${activeStatusFilter === 'ALL' ? 'text-slate font-bold' : 'text-taupe hover:text-slate'}`}>
-          ALL: {tasks.length}
-        </button>
-        {segments.map((seg) => (
-          <React.Fragment key={seg.label}>
-            <span className="h-3 w-px bg-hairline" />
-            <button
-              onClick={() => onFilterByStatus?.(seg.filter)}
-              className={`flex items-center gap-1.5 transition-colors cursor-pointer ${activeStatusFilter === seg.filter ? 'text-slate font-bold' : 'text-taupe hover:text-slate'}`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${seg.color}`} />
-              {seg.label}: <strong className="tabular-nums text-slate">{seg.count}</strong>
-            </button>
-          </React.Fragment>
-        ))}
-      </div>
+      <SegmentFilter
+        ariaLabel="Filter by execution state"
+        value={activeStatusFilter ?? 'ALL'}
+        onChange={(id) => onFilterByStatus?.(id)}
+        options={[
+          { id: 'ALL', label: 'ALL', count: tasks.length },
+          ...segments.map((s) => ({ id: s.filter, label: s.label, count: s.count, dot: s.color })),
+        ]}
+      />
     </div>
   );
 };
 
 // ── Main Command Bar ───────────────────────────────────────────────────────
 export const CommandBar: React.FC<CommandBarProps> = ({
-  filters, onFilterChange, onResetFilters, counts,
-  availableTechniques, availableHarmTypes, viewMode, onViewModeChange,
+  filters, onFilterChange, onResetFilters, viewMode, onViewModeChange,
 }) => {
   const activeRunId  = usePipelineStore(s => s.activeRunId);
   const activeRunMeta = usePipelineStore(s => s.activeRunMeta);
   const setActiveRun = usePipelineStore(s => s.setActiveRun);
   const setActiveRunMeta = usePipelineStore(s => s.setActiveRunMeta);
   const streamHealth = usePipelineStore(s => s.streamHealth);
+  const lastEventAt  = usePipelineStore(s => s.lastEventAt);
+  const eventCount   = usePipelineStore(s => s.eventCount);
   const triggerReconnect = usePipelineStore(s => s.triggerReconnect);
+  const intelligenceFeed = usePipelineStore(s => s.intelligenceFeed);
   const { density, setDensity } = useWorkspaceStore();
+  const openLauncher = useLauncherStore((s) => s.openLauncher);
 
   const [runs, setRuns] = useState<Run[]>([]);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [techOpen, setTechOpen] = useState(false);
   const [harmOpen, setHarmOpen] = useState(false);
+  const [staleSeconds, setStaleSeconds] = useState(0);
 
   const scopeRef = useRef<HTMLDivElement>(null);
   const techRef  = useRef<HTMLDivElement>(null);
   const harmRef  = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  useHotkeyFocus(searchRef);
+
+  // Facet options derive from live data — single source with the ledger.
+  const liveTasks = usePipelineStore(s => s.liveTasks);
+  const tasksArray = useMemo(() => Object.values(liveTasks), [liveTasks]);
+
+  const availableTechniques = useMemo(() => {
+    const s = new Set<string>();
+    tasksArray.forEach(t => t.technique && s.add(t.technique));
+    return Array.from(s).sort();
+  }, [tasksArray]);
+
+  const availableHarmTypes = useMemo(() => {
+    const s = new Set<string>();
+    tasksArray.forEach(t => t.harm_type && s.add(t.harm_type));
+    return Array.from(s).sort();
+  }, [tasksArray]);
+
+  const counts = useMemo(() => ({
+    all:          tasksArray.length,
+    breakthrough: tasksArray.filter(t => t.is_breakthrough || t.status === 'breakthrough').length,
+    defended:     tasksArray.filter(t => t.status === 'defended' || (t.status === 'completed' && !t.is_breakthrough)).length,
+    active:       tasksArray.filter(t => ['mutating', 'transmitting', 'scoring'].includes(t.status)).length,
+    queued:       tasksArray.filter(t => t.status === 'queued').length,
+    unresolved:   tasksArray.filter(t => t.status === 'unresolved' || t.status === 'failed').length,
+  }), [tasksArray]);
 
   useEffect(() => {
-    api.listRuns(20, 0).then(r => r?.runs && setRuns(r.runs)).catch(() => {});
+    let cancelled = false;
+    api.listRuns(20, 0)
+      .then(r => { if (!cancelled && r?.runs) setRuns(r.runs); })
+      .catch(() => { /* scope dropdown falls back to GLOBAL STREAM only */ });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -231,16 +229,16 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     return () => document.removeEventListener('mousedown', close);
   }, []);
 
+  // Stream-staleness diagnostics (resurrected from the orphaned StreamStatusBanner):
+  // while paused, surface how stale the feed is so "paused" is actionable.
   useEffect(() => {
-    const kd = (e: KeyboardEvent) => {
-      if (e.key === '/' && document.activeElement !== searchRef.current && !(document.activeElement instanceof HTMLInputElement)) {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', kd);
-    return () => window.removeEventListener('keydown', kd);
-  }, []);
+    if (streamHealth !== 'paused' || !lastEventAt) { setStaleSeconds(0); return; }
+    const compute = () =>
+      setStaleSeconds(Math.max(0, Math.floor((Date.now() - new Date(lastEventAt).getTime()) / 1000)));
+    compute();
+    const id = setInterval(compute, 1000);
+    return () => clearInterval(id);
+  }, [streamHealth, lastEventAt]);
 
   const handleSelectRun = (run: Run | null) => {
     if (!run) { setActiveRun('all'); setActiveRunMeta(null); }
@@ -256,12 +254,12 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     (filters.harmType !== 'ALL' ? 1 : 0) + (filters.minRisk > 0 ? 1 : 0) + (filters.searchQuery.trim() !== '' ? 1 : 0);
 
   const statusPills = [
-    { id: 'ALL',          label: 'ALL',         count: counts.all,          dot: 'bg-slate' },
-    { id: 'BREAKTHROUGH', label: 'BREACH',       count: counts.breakthrough, dot: 'bg-maroon' },
-    { id: 'DEFENDED',     label: 'DEF',          count: counts.defended,    dot: 'bg-olive' },
-    { id: 'ACTIVE',       label: 'ACTIVE',       count: counts.active,      dot: 'bg-powder' },
-    { id: 'QUEUED',       label: 'QUEUED',       count: counts.queued,      dot: 'bg-hairline' },
-    { id: 'UNRESOLVED',   label: 'FAIL',         count: counts.unresolved,  dot: 'bg-maroon/50' },
+    { id: 'ALL',          label: 'ALL',    count: counts.all,          dot: 'bg-slate' },
+    { id: 'BREAKTHROUGH', label: 'BREACH', count: counts.breakthrough, dot: 'bg-maroon' },
+    { id: 'DEFENDED',     label: 'DEF',    count: counts.defended,     dot: 'bg-olive' },
+    { id: 'ACTIVE',       label: 'ACTIVE', count: counts.active,       dot: 'bg-powder' },
+    { id: 'QUEUED',       label: 'QUEUED', count: counts.queued,       dot: 'bg-hairline' },
+    { id: 'UNRESOLVED',   label: 'FAIL',   count: counts.unresolved,   dot: 'bg-maroon/50' },
   ];
 
   const domainLabel = activeRunMeta?.domain || 'ALL CAMPAIGNS';
@@ -325,13 +323,16 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           )}
         </div>
 
-        {/* Stream paused indicator */}
+        {/* Stream paused/connecting diagnostics */}
         {streamHealth === 'paused' && (
           <button onClick={triggerReconnect}
             className="flex items-center gap-1.5 px-3 h-full hairline-right text-camel hover:bg-camel-muted transition-colors cursor-pointer shrink-0"
-            title="Stream paused — click to reconnect">
+            title={lastEventAt ? `Last event ${staleSeconds}s ago · ${eventCount} events received this session — click to reconnect` : 'Stream paused — click to reconnect'}>
             <AlertTriangle size={12} />
-            <span className="text-[10px] font-bold uppercase">RECONNECT</span>
+            <span className="text-[10px] font-bold uppercase hidden md:inline">
+              {lastEventAt ? `STALE ${staleSeconds}s · ${eventCount} EVT` : 'RECONNECT'}
+            </span>
+            <span className="text-[10px] font-bold uppercase md:hidden">RECONNECT</span>
           </button>
         )}
         {streamHealth === 'connecting' && (
@@ -355,7 +356,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           />
           <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
             {filters.searchQuery && (
-              <button onClick={() => onFilterChange({ searchQuery: '' })} className="text-steel hover:text-slate cursor-pointer"><X size={12} /></button>
+              <button onClick={() => onFilterChange({ searchQuery: '' })} className="text-steel hover:text-slate cursor-pointer" aria-label="Clear search"><X size={12} /></button>
             )}
             <kbd className="hidden sm:inline px-1.5 py-0.5 text-[9px] text-taupe bg-linen border border-hairline">/</kbd>
           </div>
@@ -363,6 +364,28 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
         {/* Right edge controls — Grouped by full-height vertical lines, options within by smaller lines */}
         <div className="flex items-stretch h-full shrink-0 hairline-left font-mono text-[10px]">
+          {/* Launch Group */}
+          <div className="flex items-center px-4 h-full border-r border-hairline">
+            <button
+              onClick={openLauncher}
+              className="flex items-center gap-1.5 transition-colors cursor-pointer uppercase tracking-wider text-slate font-bold hover:text-maroon"
+              title="Launch new campaign"
+            >
+              <Plus size={12} strokeWidth={2.5} />
+              <span className="hidden lg:inline">CAMPAIGN</span>
+            </button>
+          </div>
+
+          {/* Intel badge (compact viewports — full rail is xl-only) */}
+          {intelligenceFeed.length > 0 && (
+            <div className="flex items-center px-4 h-full border-r border-hairline xl:hidden">
+              <span className="flex items-center gap-1.5 text-camel font-bold" title={`${intelligenceFeed.length} intel alerts`}>
+                <AlertTriangle size={12} />
+                <span className="tabular-nums">{intelligenceFeed.length}</span>
+              </span>
+            </div>
+          )}
+
           {/* Density Group */}
           <div className="flex items-center gap-2 px-4 h-full border-r border-hairline">
             {(['comfortable', 'compact', 'research'] as const).map((d, i) => {
@@ -415,30 +438,14 @@ export const CommandBar: React.FC<CommandBarProps> = ({
       {/* ── Strip 2: Status pills + dimension dropdowns ── */}
       <div className="flex items-stretch gap-0 h-9 overflow-x-auto">
 
-        {/* Status Group — Grouped by full-height line, options inside by small lines */}
-        <div className="flex items-center gap-2.5 px-3 h-full border-r border-hairline shrink-0 font-mono text-[10px]">
-          {statusPills.map((tab, idx) => {
-            const isActive = filters.status === tab.id;
-            return (
-              <React.Fragment key={tab.id}>
-                {idx > 0 && <span className="h-3 w-px bg-hairline" />}
-                <button
-                  onClick={() => onFilterChange({ status: tab.id })}
-                  className={`flex items-center gap-1.5 transition-colors cursor-pointer uppercase tracking-wider whitespace-nowrap ${
-                    isActive ? 'text-slate font-bold' : 'text-taupe hover:text-slate'
-                  }`}
-                  role="tab"
-                  aria-selected={isActive}
-                >
-                  <span className={`w-1.5 h-1.5 rounded-full ${tab.dot}`} />
-                  <span>{tab.label}</span>
-                  <span className={`tabular-nums text-[9px] ${isActive ? 'text-slate font-bold' : 'text-taupe'}`}>
-                    {tab.count}
-                  </span>
-                </button>
-              </React.Fragment>
-            );
-          })}
+        {/* Status Group */}
+        <div className="px-3 h-full border-r border-hairline shrink-0 flex items-center">
+          <SegmentFilter
+            ariaLabel="Filter by task outcome"
+            value={filters.status}
+            onChange={(id) => onFilterChange({ status: id as FilterState['status'] })}
+            options={statusPills}
+          />
         </div>
 
         {/* Technique dropdown */}
@@ -491,25 +498,20 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           )}
         </div>
 
-        {/* Min Risk Group — Grouped by full-height line, options inside by small lines */}
-        <div className="flex items-center gap-2 px-3 h-full border-r border-hairline shrink-0 font-mono text-[10px]">
-          <span className="text-taupe text-[9px] uppercase tracking-wider">MIN RISK:</span>
-          {[{ v: 0, l: 'ANY' }, { v: 0.4, l: '≥0.40' }, { v: 0.7, l: '≥0.70' }, { v: 0.85, l: 'CRIT' }].map((lvl, idx) => {
-            const isActive = filters.minRisk === lvl.v;
-            return (
-              <React.Fragment key={lvl.v}>
-                {idx > 0 && <span className="h-3 w-px bg-hairline" />}
-                <button
-                  onClick={() => onFilterChange({ minRisk: lvl.v })}
-                  className={`transition-colors cursor-pointer uppercase tracking-wider ${
-                    isActive ? 'text-slate font-bold' : 'text-taupe hover:text-slate'
-                  }`}
-                >
-                  {lvl.l}
-                </button>
-              </React.Fragment>
-            );
-          })}
+        {/* Min Risk Group */}
+        <div className="px-3 h-full border-r border-hairline shrink-0 flex items-center">
+          <SegmentFilter
+            leadingLabel="MIN RISK:"
+            ariaLabel="Filter by minimum risk score"
+            value={String(filters.minRisk)}
+            onChange={(id) => onFilterChange({ minRisk: Number(id) })}
+            options={[
+              { id: '0',    label: 'ANY' },
+              { id: '0.4',  label: '≥0.40' },
+              { id: '0.7',  label: '≥0.70' },
+              { id: '0.85', label: 'CRIT' },
+            ]}
+          />
         </div>
 
         {/* Reset Action */}

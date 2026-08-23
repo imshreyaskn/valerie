@@ -1,11 +1,12 @@
 import { Search, Plus } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { usePipelineStore } from '../stores/pipelineStore';
+import { useLauncherStore } from '../stores/launcherStore';
 
 export function CommandStrip() {
   const location = useLocation();
-  const navigate = useNavigate();
   const runStats = usePipelineStore((s) => s.runStats);
+  const openLauncher = useLauncherStore((s) => s.openLauncher);
 
   const pageCode = (() => {
     const path = location.pathname;
@@ -13,7 +14,7 @@ export function CommandStrip() {
     if (path.includes('campaigns')) return '02.00 // CAMPAIGNS';
     if (path.includes('investigation')) return '03.00 // INVESTIGATION';
     if (path.includes('findings')) return '04.00 // FINDINGS';
-    if (path.includes('weaknesses')) return '05.00 // THREAT KNOWLEDGE';
+    if (path.includes('weaknesses')) return '05.00 // WEAKNESSES';
     if (path.includes('endpoints')) return '06.00 // TARGET ENDPOINTS';
     if (path.includes('keys')) return '07.00 // API KEYS';
     if (path.includes('settings')) return '08.00 // SETTINGS';
@@ -64,9 +65,9 @@ export function CommandStrip() {
           <span className="text-[10px] text-taupe ml-1">[⌘K]</span>
         </button>
 
-        {/* Quick Launch */}
+        {/* Quick Launch — opens the global 5-stage dispatch modal in place */}
         <button
-          onClick={() => navigate('/dashboard/endpoints')}
+          onClick={openLauncher}
           className="flex items-center gap-1.5 px-4 py-1.5 bg-slate text-parchment hover:bg-slate/90 transition-colors uppercase font-bold cursor-pointer"
         >
           <Plus size={13} strokeWidth={2.5} />

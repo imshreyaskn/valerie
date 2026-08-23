@@ -74,6 +74,7 @@ export interface Finding {
 }
 
 export interface WeaknessCluster {
+  trend?: string;
   id: string;
   name: string;
   description: string;
@@ -89,6 +90,38 @@ export interface KnowledgeSearchResult {
   task_id: string;
   iteration: number;
   distance?: number;
+  run_id?: string;
+}
+
+// ── Investigation board contract ──────────────────────────────────────────────
+// Lives in the shared type module so pages never import from pages.
+export type Disposition = 'confirmed' | 'needs-review' | 'duplicate' | 'false-positive';
+
+export interface ForensicCaseItem {
+  id: string;
+  taskId: string;
+  runId: string;
+  title: string;
+  domain: string;
+  endpoint: string;
+  technique: string;
+  harmCategory: string;
+  riskScore: number;
+  disposition: Disposition;
+  seedPrompt: string;
+  adversarialPrompt: string;
+  targetResponse: string;
+  judgeReasoning: string;
+  vectorScores: {
+    directHarm: number;
+    toxicity: number;
+    pii: number;
+    hallucination: number;
+    policyBreach: number;
+  };
+  analystNotes: string;
+  pinnedAt: string;
+  updatedAt: string;
 }
 
 export interface ApiKeyItem {

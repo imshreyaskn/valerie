@@ -1,4 +1,4 @@
-import type { ForensicCaseItem, Disposition } from '../pages/InvestigationBoard';
+import type { ForensicCaseItem, Disposition } from '../types/domain';
 import type { Finding } from '../types/domain';
 
 const STORAGE_KEY = 'valerie_investigation_cases';
@@ -16,7 +16,7 @@ export function getInvestigationCases(): ForensicCaseItem[] {
   return [];
 }
 
-function saveCases(cases: ForensicCaseItem[]): void {
+export function saveCases(cases: ForensicCaseItem[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cases));
   } catch (e) {
@@ -24,10 +24,16 @@ function saveCases(cases: ForensicCaseItem[]): void {
   }
 }
 
+function commit(next: ForensicCaseItem[]): ForensicCaseItem[] {
+  saveCases(next);
+  window.dispatchEvent(new Event('valerie-investigation-cases-changed'));
+  return next;
+}
+
 /**
  * Converts a backend Finding into a board-ready forensic case.
- * Shared by the Findings pin action and any future pin surfaces so the
- * InvestigationBoard can never end up data-orphaned again (audit H6).
+ * Shared by the Findings pin action and any future pin surface so the
+ * InvestigationBoard can never end up data-orphaned.
  */
 export function pinFindingAsCase(finding: Finding): ForensicCaseItem[] {
   const now = new Date().toISOString();
@@ -35,7 +41,6 @@ export function pinFindingAsCase(finding: Finding): ForensicCaseItem[] {
   if (existing.some((c) => c.id === finding.id)) return existing;
 
   const evidence = Array.isArray(finding.evidence) ? finding.evidence : [];
-  const firstEvidenceText = String(evidence[0]?.payload?.tokens ?? '');
 
   const caseItem: ForensicCaseItem = {
     id: finding.id,
@@ -49,7 +54,7 @@ export function pinFindingAsCase(finding: Finding): ForensicCaseItem[] {
     riskScore: finding.score ?? 0,
     disposition: (finding.is_breakthrough ? 'confirmed' : 'needs-review') as Disposition,
     seedPrompt: '',
-    adversarialPrompt: firstEvidenceText,
+    adversarialPrompt: String(evidence[0]?.payload?.tokens ?? ''),
     targetResponse: evidence.map((e) => e.description).filter(Boolean).join('\n'),
     judgeReasoning: '',
     vectorScores: {
@@ -64,21 +69,27 @@ export function pinFindingAsCase(finding: Finding): ForensicCaseItem[] {
     updatedAt: now,
   };
 
-  const next = [caseItem, ...existing];
-  saveCases(next);
-  return next;
+  return commit([caseItem, ...existing]);
 }
 
 export function unpinCase(caseId: string): ForensicCaseItem[] {
-  const next = getInvestigationCases().filter((c) => c.id !== caseId);
-  saveCases(next);
-  return next;
+  return commit(getInvestigationCases().filter((c) => c.id !== caseId));
+}
+
+export function removeCase(caseId: string): ForensicCaseItem[] {
+  return unpinCase(caseId);
 }
 
 export function updateCaseNotes(caseId: string, notes: string): ForensicCaseItem[] {
   const next = getInvestigationCases().map((c) =>
     c.id === caseId ? { ...c, analystNotes: notes, updatedAt: new Date().toISOString() } : c
   );
-  saveCases(next);
-  return next;
+  return commit(next);
+}
+
+export function setCaseDisposition(caseId: string, disposition: Disposition): ForensicCaseItem[] {
+  const next = getInvestigationCases().map((c) =>
+    c.id === caseId ? { ...c, disposition, updatedAt: new Date().toISOString() } : c
+  );
+  return commit(next);
 }

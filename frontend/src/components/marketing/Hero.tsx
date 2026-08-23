@@ -1,4 +1,4 @@
-import { HERO_ASCII_ART } from '../constants/ascii';
+import { HERO_ASCII_ART } from '../../constants/ascii';
 
 export default function Hero() {
   return (

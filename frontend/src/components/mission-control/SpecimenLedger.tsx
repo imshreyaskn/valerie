@@ -47,7 +47,10 @@ export const SpecimenLedger: React.FC<SpecimenLedgerProps> = ({
   const sortedTasks = useMemo(() => {
     return [...tasks].sort((a, b) => {
       let comparison = 0;
-      if (sortField === 'risk_score') {
+      if (sortField === 'index') {
+        // Dispatch order: creation timestamp, falling back to insertion order.
+        comparison = (a.created_at || '').localeCompare(b.created_at || '');
+      } else if (sortField === 'risk_score') {
         comparison = (a.risk_score || 0) - (b.risk_score || 0);
       } else if (sortField === 'last_updated') {
         comparison = (a.last_updated || '').localeCompare(b.last_updated || '');

@@ -1,4 +1,4 @@
-import { ARCHITECTURE_ASCII_ART } from '../constants/ascii';
+import { ARCHITECTURE_ASCII_ART } from '../../constants/ascii';
 
 export default function Architecture() {
   return (

@@ -1,51 +1,65 @@
-interface MetricCellProps {
+import React from 'react';
+
+export type MetricTone = 'default' | 'danger' | 'success' | 'warning' | 'maroon' | 'olive' | 'camel' | 'powder' | 'static';
+
+export interface MetricCellProps {
   index: string;
   label: string;
-  value: string | number;
-  sublabel?: string;
-  variant?: 'default' | 'danger' | 'success' | 'warning' | 'maroon' | 'olive' | 'camel' | 'powder';
-  borderRight?: boolean;
-  borderTop?: boolean;
+  /** Pre-rendered value node (number, string, or JSX for dot/pulse treatments). */
+  value: React.ReactNode;
+  sublabel?: React.ReactNode;
+  variant?: MetricTone;
+  className?: string;
 }
 
+const TONE_CLASS: Record<MetricTone, string> = {
+  default: 'text-slate',
+  static: 'text-slate',
+  maroon: 'text-maroon',
+  danger: 'text-maroon',
+  olive: 'text-olive',
+  success: 'text-olive',
+  camel: 'text-camel',
+  warning: 'text-camel',
+  powder: 'text-powder',
+};
+
+/**
+ * Single numbered telemetry cell (1.01 …). The row container owns layout and
+ * padding via `className`; this component owns only cell anatomy.
+ *
+ * Tone semantics:
+ *  - data tones (maroon/olive/camel/powder) colour by measured state;
+ *  - `static` marks configuration facts that must never read as live metrics.
+ */
 export function MetricCell({
   index,
   label,
   value,
   sublabel,
   variant = 'default',
-  borderRight = true,
-  borderTop = false,
+  className = '',
 }: MetricCellProps) {
-  const valueColor =
-    variant === 'danger' || variant === 'maroon'  ? 'text-maroon'  :
-    variant === 'success' || variant === 'olive'  ? 'text-olive'   :
-    variant === 'warning' || variant === 'camel'  ? 'text-camel'   :
-    variant === 'powder'                          ? 'text-powder'  :
-    'text-slate';
-
   return (
     <div
-      className={[
-        'p-4 md:p-6 flex flex-col justify-between transition-colors hover:bg-linen/40',
-        borderRight ? 'md:hairline-right' : '',
-        borderTop ? 'max-md:hairline-top' : '',
-      ].join(' ')}
+      className={`flex flex-col justify-between transition-colors hover:bg-linen/40 ${className}`}
     >
       <div>
-        <div className="text-sm font-mono text-steel mb-1">{index}</div>
-        <div className="text-sm font-semibold uppercase tracking-[0.02em] text-slate mb-2">
+        <div className={`font-mono text-steel mb-1 ${variant === 'static' ? 'text-xs' : 'text-xs'}`}>{index}</div>
+        <div className="text-xs font-semibold uppercase tracking-[0.02em] text-slate mb-2">
           {label}
         </div>
       </div>
       <div>
-        <div className={`font-mono text-[1.75rem] font-bold ${valueColor} tabular-nums leading-none`}>
+        <div
+          className={`font-mono text-2xl md:text-3xl font-bold tabular-nums leading-none ${
+            TONE_CLASS[variant]
+          }`}
+        >
           {value}
         </div>
         {sublabel && (
-          <div className="text-[0.75rem] font-mono text-steel mt-2 uppercase truncate">
-            {sublabel}
-          </div>
+          <div className="text-[10px] font-mono text-steel mt-2 uppercase truncate">{sublabel}</div>
         )}
       </div>
     </div>
