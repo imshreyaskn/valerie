@@ -233,6 +233,15 @@ class Settings(BaseSettings):
         alias="ALLOWED_ORIGINS",
         description="Allowed CORS origins"
     )
+
+    allow_local_llm_targets: bool = Field(
+        default=False,
+        alias="ALLOW_LOCAL_LLM_TARGETS",
+        description=(
+            "Explicit opt-in permitting localhost/host.docker.internal as LLM target "
+            "endpoints (local development against mock servers). Must stay false in production."
+        )
+    )
     
     # Timeout Configuration (Critical for LLM calls)
     llm_timeout_seconds: int = Field(

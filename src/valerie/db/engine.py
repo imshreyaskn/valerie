@@ -1,13 +1,12 @@
 import asyncio
 import logging
 from typing import Any
+
 import certifi
 from motor.motor_asyncio import AsyncIOMotorClient
 import redis.asyncio as redis
-from valerie.core.settings import settings
-import logging
 
-logger = logging.getLogger("db.engine")
+from valerie.core.settings import settings
 
 logger = logging.getLogger("valerie.db.engine")
 
@@ -25,7 +24,7 @@ try:
     }
     if "+srv" in MONGO_URI or "tls=true" in MONGO_URI.lower():
         kwargs["tlsCAFile"] = certifi.where()
-        
+
     client: AsyncIOMotorClient = AsyncIOMotorClient(
         MONGO_URI,
         **kwargs
@@ -60,32 +59,15 @@ except Exception as e:
     )
 
 
-async def close_db_connections():
-    """
-    Properly close all database connections on shutdown (H-03).
-    
-    This prevents connection leaks and resource exhaustion in long-running servers.
-    Should be called during application lifespan shutdown.
-    """
-    logger.info("Closing database connections...")
-    try:
-        client.close()
-        logger.info("MongoDB connections closed")
-    except Exception as e:
-        logger.error(f"Error closing MongoDB connections: {e}")
-    
-    try:
-        await redis_client.close()
-        logger.info("Redis connections closed")
-    except Exception as e:
-        logger.error(f"Error closing Redis connections: {e}")
-
 async def close_db_connections(timeout: float = 5.0):
     """
     Gracefully and safely closes MongoDB and Redis connection pools with timeouts (H-03).
+
+    This prevents connection leaks and resource exhaustion in long-running servers.
+    Should be called during application lifespan shutdown.
     """
     logger.info("Closing database and cache connections...")
-    
+
     # 1. Close Redis Client
     try:
         if redis_client:

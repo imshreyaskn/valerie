@@ -1,11 +1,14 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { CampaignGraphCanvas } from './CampaignGraphCanvas';
+import { CampaignGraph }       from './v2/CampaignGraph';
 import { usePipelineStore } from '../../stores/pipelineStore';
 import { api } from '../../utils/api';
 import type { Run, RunResultsResponse, HistoricalTaskResult } from '../../types/domain';
+
+// Runs hydrated this session — prevents duplicate task synthesis on reopen.
+const hydratedRuns = new Set<string>();
 
 interface Props {
   run: Run | null;
@@ -16,8 +19,9 @@ export const CampaignGraphModal: React.FC<Props> = ({ run, onClose }) => {
   const navigate = useNavigate();
   const setActiveRun    = usePipelineStore(s => s.setActiveRun);
   const setActiveRunMeta = usePipelineStore(s => s.setActiveRunMeta);
+  const subscribeRun    = usePipelineStore(s => s.subscribeRun);
   const processEvent    = usePipelineStore(s => s.processEvent);
-  const reset           = usePipelineStore(s => s.reset);
+  const hydrationRef = useRef(false);
 
   const isLive = run?.status === 'running';
 
@@ -25,7 +29,9 @@ export const CampaignGraphModal: React.FC<Props> = ({ run, onClose }) => {
   useEffect(() => {
     if (!run) return;
 
-    reset();
+    // Scope (never wipe) — per-run maps preserve other runs' live state and
+    // switching back to Mission Control restores its view automatically.
+    subscribeRun(run.id);
     setActiveRun(run.id);
     setActiveRunMeta({
       domain:        run.domain,
@@ -36,8 +42,10 @@ export const CampaignGraphModal: React.FC<Props> = ({ run, onClose }) => {
       started_at:    run.created_at,
     });
 
-    // For completed/historical runs — hydrate from results endpoint
-    if (run.status !== 'running') {
+    // For completed/historical runs — hydrate from results endpoint once.
+    if (run.status !== 'running' && !hydratedRuns.has(run.id)) {
+      hydrationRef.current = true;
+      hydratedRuns.add(run.id);
       api.getResults(run.id).then((data: RunResultsResponse) => {
         const results: HistoricalTaskResult[] = data?.results ?? [];
         // Synthesize task.completed events from each result record
@@ -72,7 +80,10 @@ export const CampaignGraphModal: React.FC<Props> = ({ run, onClose }) => {
           // Then fire completion
           processEvent(fakeEvent);
         });
-      }).catch(console.error);
+      }).catch((err) => {
+        hydratedRuns.delete(run.id); // allow retry on next open
+        console.error('Failed to hydrate campaign graph', err);
+      }).finally(() => { hydrationRef.current = false; });
     }
 
     return () => { /* keep store alive — user might navigate to Mission Control */ };
@@ -200,7 +211,7 @@ export const CampaignGraphModal: React.FC<Props> = ({ run, onClose }) => {
 
           {/* ── Canvas ── */}
           <div style={{ flex: 1, minHeight: 0 }}>
-            <CampaignGraphCanvas runId={run.id} isLive={isLive} />
+            <CampaignGraph />
           </div>
         </Dialog.Content>
       </Dialog.Portal>

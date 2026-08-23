@@ -65,6 +65,8 @@ export const api = {
     fetchWithAuth<{ run_id: string; status: string }>('/runs/', { method: 'POST', body: JSON.stringify(config) }),
   getResults: (runId: string): Promise<RunResultsResponse> =>
     fetchWithAuth<RunResultsResponse>(`/runs/${runId}/results`),
+  getStreamToken: (runId: string): Promise<{ token: string; expires_in_seconds: number }> =>
+    fetchWithAuth<{ token: string; expires_in_seconds: number }>(`/runs/stream/${runId}/token`, { method: 'POST' }),
 
   // Authentication
   authLogin: (credentials: { email: string; password?: string }): Promise<{ access_token: string }> =>
@@ -89,7 +91,7 @@ export const api = {
   getPromptLineage: (promptId: string): Promise<Record<string, unknown>> =>
     fetchWithAuth<Record<string, unknown>>(`/lineage/${promptId}`),
   getIntelligenceAnomalies: (): Promise<Record<string, unknown>> =>
-    fetchWithAuth<Record<string, unknown>>('/intelligence/anomalies'),
+    fetchWithAuth<Record<string, unknown>>('/intelligence/feed'),
   getIntelligenceClusters: (): Promise<Record<string, unknown>> =>
     fetchWithAuth<Record<string, unknown>>('/intelligence/clusters'),
   getIntelligenceCoverage: (): Promise<Record<string, unknown>> =>

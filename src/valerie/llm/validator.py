@@ -40,6 +40,17 @@ def is_safe_url(url_str: str) -> tuple[bool, str]:
         if not hostname:
             return False, "Invalid URL: missing hostname"
 
+        # Explicit opt-in for local test targets (local development only).
+        # NOTE: this is a boolean setting, NOT the is_development() method —
+        # a truthy method reference here once silently enabled this bypass
+        # in production (see audit C2).
+        try:
+            from valerie.core.settings import settings
+            if settings.allow_local_llm_targets and hostname in ("localhost", "127.0.0.1", "host.docker.internal"):
+                return True, ""
+        except Exception:
+            pass
+
         # Check if hostname is direct IP literal
         try:
             ip = ipaddress.ip_address(hostname)

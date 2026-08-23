@@ -7,6 +7,10 @@ from valerie.core.settings import settings
 app = FastAPI(title="Valerie Worker API")
 logger = logging.getLogger("worker")
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 @app.post("/internal/run")
 async def execute_run(
     request: Request,
@@ -31,16 +35,20 @@ async def execute_run(
     if not (valid_secret or valid_master):
         raise HTTPException(status_code=401, detail="Invalid worker authentication token.")
 
-    config = await request.json()
-    run_id = config.get("run_id")
-    
-    if not run_id:
-        raise HTTPException(status_code=400, detail="Missing required field: run_id")
+    # Validate the task contract before executing (audit M: worker trusted raw JSON).
+    from valerie.graph.pipeline import PipelineRunConfig
+    body = await request.json()
+    try:
+        config = PipelineRunConfig(**body)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Invalid task payload: {type(e).__name__}: {str(e)[:200]}")
+
+    run_id = config.run_id
         
     logger.info(f"Received pipeline run task for run_id: {run_id}")
     
     try:
-        results = await run_pipeline(config)
+        results = await run_pipeline(config.model_dump())
         return {"status": "success", "tasks_processed": len(results)}
     except Exception as e:
         logger.error(f"Pipeline failed for {run_id}: {e}", exc_info=True)

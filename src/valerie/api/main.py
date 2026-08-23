@@ -57,12 +57,15 @@ async def lifespan(app: FastAPI):
         await publisher.close()
         await close_db_connections(timeout=5.0)
 
+_is_prod = settings.is_production()
+
 app = FastAPI(
     title="Valerie Red Team API",
     version="2.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    # Interactive docs are a development tool; do not expose them publicly in production.
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc"
 )
 
 # CORS Configuration
@@ -167,12 +170,14 @@ async def health_check(request: Request):
     try:
         await db.command("ping")
     except Exception as e:
-        mongo_status = f"unhealthy: {str(e)[:100]}"
+        mongo_status = "unhealthy"
+        logger.error(f"Health check MongoDB ping failed: {e}")
 
     try:
         await redis_client.ping()
     except Exception as e:
-        redis_status = f"unhealthy: {str(e)[:100]}"
+        redis_status = "unhealthy"
+        logger.error(f"Health check Redis ping failed: {e}")
 
     # Check asyncio consumer tasks
     consumers = {}

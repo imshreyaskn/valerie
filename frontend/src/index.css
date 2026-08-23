@@ -187,3 +187,64 @@ body {
 .react-flow__attribution { display: none !important; }
 .react-flow__edge-text   { fill: var(--color-steel) !important; }
 .react-flow__edge-textbg { fill: var(--color-parchment) !important; }
+
+/* ═══════════════════════════════════════════════════════════════
+   GRAPH V2 — Node animation + selection + filter styles
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes node-enter {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes dashdraw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* Dimmed: non-matching nodes under filter. NEVER removed, only faded. */
+.react-flow__node.dimmed {
+  opacity: 0.15;
+  transition: opacity var(--dur-base) var(--ease-in-out);
+  pointer-events: none;
+}
+
+/* Selection ring for nodes — hairline outline, no glow */
+.selected-ring {
+  outline: 2px solid var(--color-slate) !important;
+  outline-offset: 2px;
+}
+
+/* Mutation nodes stagger-enter */
+.mutation-enter {
+  animation: node-enter var(--dur-base) var(--ease-out) both;
+  animation-delay: calc(var(--iter, 0) * 30ms);
+}
+
+/* Default RF node selection glow → off (we use .selected-ring) */
+.react-flow__node.selected > div {
+  box-shadow: none !important;
+}
+
+/* Outcome edge color variants */
+.react-flow__edge.edge-breakthrough path {
+  stroke: var(--color-maroon) !important;
+  stroke-width: 2 !important;
+}
+.react-flow__edge.edge-defended path,
+.react-flow__edge.edge-completed path {
+  stroke: var(--color-olive) !important;
+}
+.react-flow__edge.edge-unresolved path {
+  stroke: var(--color-taupe) !important;
+}
+
+/* Dimmed edges */
+.react-flow__edge.dimmed path {
+  opacity: 0.12;
+}
+
+/* Range input for replay scrubber */
+input[type="range"].accent-camel {
+  accent-color: var(--color-camel);
+}
+

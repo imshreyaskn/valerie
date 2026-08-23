@@ -12,11 +12,11 @@ from valerie.forensics.evidence import (
 )
 from valerie.db.models import EvaluationResult, JudgeVerdictPayload, PipelineRun
 from valerie.llm.validator import is_safe_url
-from valerie.api.auth import create_access_token, JWT_SECRET, ALGORITHM
+from valerie.api.auth import create_access_token, JWT_SECRET, JWT_ALGORITHM as ALGORITHM
 from valerie.knowledge.embedding import compute_embedding
 from valerie.learning.genome import _heuristic_genome
 from valerie.core.settings import ConfigurationError
-from jose import jwt
+import jwt
 
 @pytest.mark.asyncio
 async def test_forensic_hashing_and_chaining():
@@ -49,7 +49,9 @@ async def test_forensic_hashing_and_chaining():
     mock_cursor.to_list = AsyncMock(side_effect=lambda length: stored_audit_log)
     mock_db.audit_log.find = MagicMock(return_value=mock_cursor)
 
-    with patch("valerie.forensics.evidence.db", mock_db):
+    # evidence.py resolves the db handle lazily via `from valerie.db.engine import db`,
+    # so the patch target is the engine module attribute.
+    with patch("valerie.db.engine.db", mock_db):
         eval_sample1 = {
             "id": "eval-101",
             "user_id": "user-test",

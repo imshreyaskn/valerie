@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../utils/api';
+import { pinFindingAsCase, unpinCase, getInvestigationCases } from '../utils/investigationCases';
 import { Search, ChevronDown, ChevronUp, X, Filter, Pin, Check } from 'lucide-react';
 import { PageHeader, StatusBadge, ActionButton } from '../components/ui';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +10,7 @@ export default function Findings() {
   const navigate = useNavigate();
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
   const [severityFilter, setSeverityFilter] = useState('ALL');
@@ -16,10 +18,28 @@ export default function Findings() {
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     api.getFindings(100, 0)
-      .then((res) => setFindings(res.findings || []))
-      .catch(console.error)
+      .then((res) => {
+        setFindings(res.findings || []);
+        setPinnedIds(new Set(getInvestigationCases().map((c) => c.id)));
+      })
+      .catch((err) => {
+        console.error('Failed to load findings', err);
+        setLoadError('Could not load findings. Check your connection and retry.');
+      })
       .finally(() => setLoading(false));
+  }, []);
+
+  // Re-sync pin state when cases change on the Investigation Board.
+  useEffect(() => {
+    const sync = () => setPinnedIds(new Set(getInvestigationCases().map((c) => c.id)));
+    window.addEventListener('valerie-investigation-cases-changed', sync);
+    window.addEventListener('focus', sync);
+    return () => {
+      window.removeEventListener('valerie-investigation-cases-changed', sync);
+      window.removeEventListener('focus', sync);
+    };
   }, []);
 
   const toggleExpand = (id: string) => {
@@ -29,8 +49,14 @@ export default function Findings() {
   const handleTogglePin = (id: string) => {
     setPinnedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        unpinCase(id);
+      } else {
+        next.add(id);
+        const finding = findings.find((f) => f.id === id);
+        if (finding) pinFindingAsCase(finding);
+      }
       return next;
     });
   };
@@ -205,6 +231,16 @@ export default function Findings() {
       {/* ── 4. Findings Table ── */}
       {loading ? (
         <div className="py-16 text-center text-xs text-steel">LOADING FINDINGS DOSSIERS</div>
+      ) : loadError ? (
+        <div className="mx-4 my-6 border border-maroon/40 bg-maroon/5 p-4 text-center">
+          <p className="text-xs font-bold uppercase text-maroon">{loadError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 text-[10px] font-bold uppercase tracking-widest text-steel underline hover:text-slate"
+          >
+            Retry
+          </button>
+        </div>
       ) : filteredFindings.length > 0 ? (
         <div className="w-full hairline-bottom select-none font-mono" role="region" aria-label="Findings Table">
           {/* Table Headers */}

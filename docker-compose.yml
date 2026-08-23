@@ -6,8 +6,8 @@ services:
       - ./src:/app/src
       - ./resources:/app/resources
     env_file: .env
-    ports: 
-      - "8080:8080"
+    ports:
+      - "127.0.0.1:8080:8080"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -27,8 +27,9 @@ services:
       - ./src:/app/src
       - ./resources:/app/resources
     env_file: .env
-    ports: 
-      - "8081:8081"
+    ports:
+      # Bound to loopback: never expose datastores/worker directly (audit M).
+      - "127.0.0.1:8081:8081"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -52,7 +53,7 @@ services:
       - ./frontend/public:/app/public
       - ./frontend/vite.config.ts:/app/vite.config.ts
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     environment:
       - BACKEND_URL=http://api:8080
       - VITE_API_URL=
@@ -61,8 +62,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Loopback-only in local dev; production Redis must sit on a private network.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -75,9 +77,9 @@ services:
     image: mongo:6
     environment:
       MONGO_INITDB_ROOT_USERNAME: valerie
-      MONGO_INITDB_ROOT_PASSWORD: localdev
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-localdev}
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongodata:/data/db
     healthcheck:

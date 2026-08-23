@@ -11,7 +11,8 @@ from valerie.api.auth import require_api_key, create_access_token, MASTER_KEY, J
 from valerie.llm.validator import is_safe_url
 from valerie.llm.router import _is_retryable_exception
 from valerie.graph.pipeline import PipelineRunConfig
-from valerie.graph.nodes import extract_json, EvaluationResult
+from valerie.graph.nodes import extract_json
+from valerie.db.models import EvaluationResult
 import litellm
 
 # ---------------------------------------------------------

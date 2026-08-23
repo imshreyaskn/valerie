@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from valerie.api.auth import require_api_key
 from valerie.db.engine import db
@@ -65,7 +65,12 @@ async def _aggregate_results(run_id: str, limit: int = 100, offset: int = 0):
     return results
 
 @router.get("/{run_id}/results")
-async def get_run_results(run_id: str, limit: int = 100, offset: int = 0, user = Depends(require_api_key)):
+async def get_run_results(
+    run_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    user = Depends(require_api_key),
+):
     query = {"id": run_id} if user["id"] == "admin_master" else {"id": run_id, "user_id": user["id"]}
     run = await db.pipeline_runs.find_one(query)
     if not run:

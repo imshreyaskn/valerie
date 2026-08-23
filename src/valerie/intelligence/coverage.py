@@ -6,15 +6,20 @@ from valerie.core.events import Event, publisher
 
 logger = logging.getLogger("intelligence.coverage")
 
-async def compute_coverage_matrix():
+async def compute_coverage_matrix(user_id: str | None = None):
     """
     Computes 3D coverage matrix across (endpoint, domain, technique) using
     streaming MongoDB aggregation (M-04) to prevent memory exhaustion on large datasets.
+    When `user_id` is provided the matrix is scoped to that user's runs only.
     """
     logger.info("Computing 3D coverage matrix via database aggregation")
-    
+
+    match_stage: dict = {"selected_techniques": {"$exists": True, "$ne": []}}
+    if user_id:
+        match_stage["user_id"] = user_id
+
     aggregation_pipeline = [
-        {"$match": {"selected_techniques": {"$exists": True, "$ne": []}}},
+        {"$match": match_stage},
         {"$unwind": "$selected_techniques"},
         {
             "$group": {

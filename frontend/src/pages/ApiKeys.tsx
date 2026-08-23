@@ -12,12 +12,16 @@ export default function ApiKeys() {
   const [isCreating, setIsCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const loadKeys = () => {
     setLoading(true);
     api.listKeys()
       .then((res) => setKeys(res.keys || []))
-      .catch(console.error)
+      .catch((err) => {
+        console.error(err);
+        setActionError('Could not load API keys. Please refresh the page.');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -29,6 +33,7 @@ export default function ApiKeys() {
     e.preventDefault();
     if (!label.trim()) return;
     setIsCreating(true);
+    setActionError(null);
     try {
       const res = await api.createKey(label.trim());
       setNewKey(res);
@@ -37,6 +42,7 @@ export default function ApiKeys() {
       loadKeys();
     } catch (err) {
       console.error(err);
+      setActionError(err instanceof Error ? err.message : 'Key generation failed. Please try again.');
     } finally {
       setIsCreating(false);
     }
@@ -44,11 +50,13 @@ export default function ApiKeys() {
 
   const handleRevoke = async (keyId: string) => {
     if (!confirm('Are you sure you want to permanently revoke this API key? Automated CI/CD pipelines using this key will immediately fail.')) return;
+    setActionError(null);
     try {
       await api.revokeKey(keyId);
       loadKeys();
     } catch (err) {
       console.error(err);
+      setActionError('Key revocation failed. The key is still active — please retry.');
     }
   };
 
@@ -126,7 +134,17 @@ export default function ApiKeys() {
         </div>
       </div>
 
-      {/* ── 3. Secret Token Reveal Banner ── */}
+      {/* ── 3. Error Banner ── */}
+      {actionError && (
+        <div className="p-4 bg-maroon/5 border-b border-maroon/30 flex items-center justify-between font-mono animate-fade-in" role="alert">
+          <span className="text-xs font-bold uppercase tracking-wider text-maroon">{actionError}</span>
+          <button onClick={() => setActionError(null)} className="text-maroon hover:text-slate cursor-pointer p-1" aria-label="Dismiss error">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ── 4. Secret Token Reveal Banner ── */}
       {newKey && (
         <div className="p-6 bg-cream/80 hairline-bottom space-y-3 font-mono animate-fade-in">
           <div className="text-xs font-bold uppercase tracking-wider text-maroon flex items-center gap-2">

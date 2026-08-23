@@ -69,6 +69,8 @@ export interface Finding {
   score: number;
   evidence: EvidenceItem[];
   created_at: string;
+  task_id?: string;
+  domain?: string;
 }
 
 export interface WeaknessCluster {
@@ -121,6 +123,30 @@ export type TaskStatus =
   | 'defended'
   | 'unresolved';
 
+/** One iteration record (backend extension — optional) */
+export interface IterationRecord {
+  iteration: number;
+  adversarial_prompt?: string;
+  target_response?: string;
+  risk_score?: number;
+  judge_reasoning?: string;
+  vector_scores?: VectorScores;
+}
+
+/** Node in a lineage chain (backend extension — optional) */
+export interface LineageNode {
+  iter: number;
+  label: 'seed' | 'refinement' | 'pivot' | string;
+  risk_score?: number;
+}
+
+/** Structured judge verdict (backend extension — optional) */
+export interface JudgeVerdict {
+  label: string;
+  confidence?: number;
+  rationale?: string;
+}
+
 export interface VectorScores {
   direct_harm?: number;
   toxicity?: number;
@@ -142,6 +168,7 @@ export interface LiveTask {
   endpoint_name?: string;
   harm_type: string;
   technique: string;
+  harm_type_group?: string;        // backend ext 4: grouping key
   status: TaskStatus;
   iterations: number;
   max_iterations?: number;
@@ -156,6 +183,12 @@ export interface LiveTask {
   error_message?: string;
   created_at?: string;
   last_updated: string;
+  // backend extension 1: per-iteration history
+  iterations_history?: IterationRecord[];
+  // backend extension: lineage chain
+  lineage_chain?: LineageNode[];
+  // backend extension: structured judge verdict
+  judge_verdict?: JudgeVerdict;
 }
 
 export interface RunStats {

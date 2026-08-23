@@ -32,11 +32,8 @@ export default function Evaluations() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const loadRuns = () => {
-    console.log('[Campaigns] fetching runs from API...');
     api.listRuns(50, 0)
       .then((res) => {
-        console.log('[Campaigns] API response:', res);
-        console.log('[Campaigns] runs count:', res?.runs?.length ?? 0);
         setRuns(res?.runs || []);
       })
       .catch((err) => {

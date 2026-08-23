@@ -3,11 +3,11 @@ import json
 import logging
 from uuid import uuid4
 import datetime
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Header, Response, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Header, Query, Response, status
 from pydantic import BaseModel, Field
 from google.cloud import tasks_v2
 
-from valerie.api.auth import require_api_key
+from valerie.api.auth import require_api_key, create_stream_token
 from valerie.db.models import PipelineRun
 from valerie.db.engine import db
 from valerie.core.settings import settings
@@ -95,7 +95,13 @@ async def _dispatch_task(payload: dict, background_tasks: BackgroundTasks) -> No
         response = await loop.run_in_executor(None, lambda: client.create_task(request={"parent": parent, "task": task}))
         logger.info(f"Created task {response.name} for run {run_id}")
     except Exception as e:
+        # Never leave the run stuck in "queued" when dispatch fails.
         logger.error(f"Failed to create Cloud Task for run {run_id}: {e}")
+        await db.pipeline_runs.update_one(
+            {"id": run_id},
+            {"$set": {"status": "failed", "error_message": f"Task dispatch failed: {type(e).__name__}"}}
+        )
+        raise HTTPException(status_code=502, detail=f"Failed to queue run: {type(e).__name__}")
 
 from valerie.attacks.techniques import TECHNIQUES
 
@@ -162,7 +168,11 @@ async def create_run(
 
 
 @router.get("/")
-async def list_runs(limit: int = 50, offset: int = 0, user=Depends(require_api_key)):
+async def list_runs(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user=Depends(require_api_key),
+):
     query = {} if user["id"] == "admin_master" else {"user_id": user["id"]}
     total = await db.pipeline_runs.count_documents(query)
     
@@ -197,16 +207,52 @@ import asyncio
 
 _active_sse_connections: int = 0
 MAX_SSE_CONNECTIONS: int = 100
+SSE_OWNED_RUN_CACHE_SIZE: int = 500
+
+
+async def _authorize_stream_access(run_id: str, user_id: str, is_admin: bool) -> None:
+    """Verify the caller may read events for `run_id` (audit C4)."""
+    if is_admin or run_id == "all":
+        return
+    run = await db.pipeline_runs.find_one({"id": run_id}, {"_id": 0, "user_id": 1})
+    if not run:
+        raise HTTPException(404, "Run not found")
+    if run.get("user_id") != user_id:
+        raise HTTPException(403, "Forbidden: You do not own this run.")
+
+
+async def _owned_run_ids(user_id: str) -> set[str]:
+    """Best-effort snapshot of the user's recent runs for 'all' stream filtering."""
+    cursor = db.pipeline_runs.find({"user_id": user_id}, {"id": 1}).sort(
+        "created_at", -1
+    ).limit(SSE_OWNED_RUN_CACHE_SIZE)
+    docs = await cursor.to_list(length=SSE_OWNED_RUN_CACHE_SIZE)
+    return {d["id"] for d in docs if "id" in d}
+
+
+@router.post("/stream/{run_id}/token")
+async def create_stream_token_endpoint(run_id: str, user=Depends(require_api_key)):
+    """
+    Issues a short-lived SSE-scoped token so EventSource never needs the
+    long-lived session JWT in a URL query string.
+    """
+    await _authorize_stream_access(run_id, user["id"], user["id"] == "admin_master")
+    return {
+        "token": create_stream_token(user["id"], run_id),
+        "expires_in_seconds": 120,
+    }
+
 
 @router.get("/stream/{run_id}")
 async def stream_run_events(
-    run_id: str, 
+    run_id: str,
     user: dict = Depends(require_api_key),
+    token: str | None = None,
     last_event_id: str = Header(default="0", alias="Last-Event-ID")
 ):
     """
     Server-Sent Events (SSE) stream for real-time run monitoring.
-    Only yields events for the specified run_id.
+    Owner-scoped: non-admin users only receive events for their own runs.
     Includes active connection guards and periodic comment heartbeats (X-05).
     """
     global _active_sse_connections
@@ -215,6 +261,14 @@ async def stream_run_events(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many active event streams (limit {MAX_SSE_CONNECTIONS}). Please retry later."
         )
+
+    # Ownership check for a concrete run; "all" streams are filtered per-user below.
+    if run_id != "all":
+        await _authorize_stream_access(run_id, user["id"], user["id"] == "admin_master")
+
+    owned_run_ids: set[str] | None = None
+    if run_id == "all" and user["id"] != "admin_master":
+        owned_run_ids = await _owned_run_ids(user["id"])
 
     _active_sse_connections += 1
 
@@ -229,17 +283,24 @@ async def stream_run_events(
                 last_event_id_val = "$"
             else:
                 last_event_id_val = last_event_id
-                
+
             async for msg_id, event in subscriber.subscribe(last_id=last_event_id_val):
                 if event is None:
                     # SSE comment heartbeat to detect dead TCP sockets (X-05)
                     yield ": heartbeat\n\n"
                     continue
-                    
-                if run_id == "all" or event.correlation_id == run_id:
+
+                if run_id != "all":
+                    matches = event.correlation_id == run_id
+                elif owned_run_ids is not None:
+                    matches = event.correlation_id in owned_run_ids
+                else:
+                    matches = True
+
+                if matches:
                     data = event.model_dump_json()
                     yield f"id: {msg_id}\ndata: {data}\n\n"
-                    
+
                     if run_id != "all" and event.type in ("run.completed", "run.failed"):
                         break
         except asyncio.CancelledError:
@@ -255,7 +316,6 @@ async def stream_run_events(
             "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-            "Access-Control-Allow-Origin": "*",
         }
     )
 

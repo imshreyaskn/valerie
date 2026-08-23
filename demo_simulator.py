@@ -9,6 +9,10 @@ This script creates a complete demo campaign with:
 - Visual clustering data for intelligence dashboard
 
 Run this BEFORE your demo to ensure the dashboard has data to display.
+
+NOTE: All generated runs are watermarked with `source: "demo_simulator"` and
+`is_demo_data: true`. This is SYNTHETIC data — it must never be presented or
+exported as genuine red-team evidence.
 """
 
 import asyncio
@@ -99,6 +103,8 @@ async def simulate_campaign(campaign_id, user_id, endpoint_id, domain, num_tasks
     print(f"   Domain: {domain}, Tasks: {num_tasks}, Expected Success Rate: {DEMO_CONFIG['success_rate']}")
     
     # Insert campaign run document
+    # Watermarked as demo data (audit M): every simulated run is tagged so it
+    # can never be mistaken for genuine red-team evidence downstream.
     await db.pipeline_runs.insert_one({
         "id": campaign_id,
         "user_id": user_id,
@@ -110,6 +116,8 @@ async def simulate_campaign(campaign_id, user_id, endpoint_id, domain, num_tasks
         "target_model": "mistral/mistral-small-latest",
         "judge_model": "mistral/mistral-large-latest",
         "attacker_model": "mistral/mistral-medium",
+        "source": "demo_simulator",
+        "is_demo_data": True,
         "created_at": datetime.now(UTC),
         "started_at": datetime.now(UTC)
     })

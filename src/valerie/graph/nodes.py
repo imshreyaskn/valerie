@@ -141,8 +141,22 @@ async def attack_worker(state: dict) -> dict:
             raise Exception(f"Endpoint {state['endpoint_id']} not found")
     
     target_model_name = endpoint.get("name")
-    target_api_key = endpoint.get("api_key")
+    # BYOK keys are stored encrypted at rest (enc:v1:...); legacy rows hold plaintext.
+    from valerie.core.crypto import decrypt_secret
+    target_api_key = decrypt_secret(endpoint.get("api_key"))
     target_api_base = endpoint.get("base_url")
+
+    # SSRF enforcement at execution time (audit C2): the /validate and
+    # /endpoints/{id}/test paths are advisory only — the worker must never dial
+    # an unvalidated URL. Re-checked every iteration to shrink the DNS-rebinding
+    # TOCTOU window.
+    from valerie.llm.validator import is_safe_url
+    if target_api_base:
+        is_safe, reason = is_safe_url(target_api_base)
+        if not is_safe:
+            raise ValueError(
+                f"Endpoint '{state['endpoint_id']}' target URL rejected by SSRF policy: {reason}"
+            )
     
     custom_template = endpoint.get("custom_payload_template")
     if custom_template:
@@ -163,10 +177,16 @@ async def attack_worker(state: dict) -> dict:
 
         for i in range(state["max_iterations"]):
             iterations_used = i + 1
-            
+
             # Rate limiting backoff between iterations (H-08)
             if i > 0:
                 await asyncio.sleep(0.5)
+
+            # Re-validate target URL each iteration (DNS-rebinding TOCTOU mitigation)
+            if target_api_base:
+                recheck_safe, recheck_reason = is_safe_url(target_api_base)
+                if not recheck_safe:
+                    raise ValueError(f"Target URL failed SSRF re-validation: {recheck_reason}")
             
             # 2. Generator / Mutator
             attacker_sys = build_attacker_system_prompt(task["attack_family"])

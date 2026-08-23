@@ -121,6 +121,11 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
 resource "google_cloud_run_v2_service" "worker" {
   name     = "valerie-worker"
   location = var.region
+  # NOTE: Cloud Tasks invokes this service over public HTTPS using OIDC, so
+  # INGRESS_TRAFFIC_ALL is required. The security gate is IAM: only the
+  # pipeline SA holds roles/run.invoker (see worker_invoker), and every task
+  # carries an OIDC token. Do NOT add allUsers/allAuthenticatedUsers invoker
+  # bindings to this service.
   ingress  = "INGRESS_TRAFFIC_ALL"
   deletion_protection = false
 

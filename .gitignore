@@ -1,4 +1,3 @@
-```
 # Dependencies
 __pycache__/
 *.pyc
@@ -6,18 +5,37 @@ __pycache__/
 *.pyd
 .venv/
 venv/
+node_modules/
+
+# Environment & secrets
 .env
 .env.local
 .env.*
+!.env.example
+!.env.demo
+
+# Terraform
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
 
 # Build artifacts
 dist/
 build/
 *.egg-info/
 
-# Logs and temp files
+# Logs, dumps and temp files
 *.log
 *.tmp
+*_logs.txt
+uvicorn_out.txt
+codebase.txt
+valerie_codebase*.txt
+valerie_frontend_full.txt
+result.txt
+results.json
 
 # Editors
 .vscode/
@@ -26,4 +44,8 @@ build/
 # OS
 .DS_Store
 Thumbs.db
-```
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
