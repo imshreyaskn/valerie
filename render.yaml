@@ -8,6 +8,8 @@ services:
     startCommand: python -m uvicorn valerie.api.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
       - key: PYTHONPATH
         value: src
       - key: ENVIRONMENT
