@@ -1,211 +1,728 @@
 <div align="center">
-  <a href="https://valerie-beta.vercel.app/">
-    <img src="assets/logo.png" alt="Valerie Logo" width="180" />
-  </a>
-  <br />
-  <h1><a href="https://valerie-beta.vercel.app/">Valerie</a></h1>
-  <p><b>Production-Grade Automated LLM Red Teaming & Forensic System</b></p>
-  
-  [![Demo Ready](https://img.shields.io/badge/demo-ready-green)](DEMO_SETUP.md)
-  [![Architecture](https://img.shields.io/badge/architecture-documented-blue)](docs/SYSTEM_ARCHITECTURE_COMPLETE.md)
-  [![Forensics](https://img.shields.io/badge/forensics-SHA256-purple)](src/valerie/forensics/evidence.py)
-  [![Python 3.12](https://img.shields.io/badge/python-3.12-yellow)](requirements.txt)
+
+<pre>
+             ...                                                                                                        ...              
+               -.                                                                                                      .-.               
+               ..--. ..                                                                                          ....+...                
+                ...+##---..                                                                                 . .-.-##+.-                  
+                ..--##-- ..-.--+.-.                                                                  ...++-.-...+-##-..                  
+                  ....- --.---.-. ..-...                                                         .-.....-.+....-......                   
+                    . .+--..  .-... ..  ...                                                   .-.    ...- . ....-...                     
+                     ..- .       .....   ..                                                ...    ....       ...+.-                      
+                     ..-...        -.   . ...                                              .....  ..-        ..--- .                     
+                      . -...  .     ... ....-.                                            -..... ..     .    ..-.                        
+                     .  ..-.          . .  ...-                                          -... ....          .-.. .                       
+                     .. ..    .... ...   ..... ..  ..                                 ...  ...    ..  ....    ....                       
+                     ..-.-..      ....     ...-.......                           ........- ..     ....       ...-.                       
+                  .    .....     .....   . ...  ..- ..-.                       . ..-.- .  .. .. ..-.. .     .--...  .-.                  
+                  ...   -.         ...-...   .........-...                    ...-.........  .. ....         .... ....                   
+                    ..-- .-... .   .  ...... ..........--+.....          .....+-.....-.... ... ... ..   .   .. .--....                   
+                     .....-----.. ...   ..     ... .....+---...          ...----...... ..     ..  ..-....--.--....                       
+                         --++#-.    .... .....  ........-###+...        ..-###+-.....- .  .........    ..-#----.                         
+                          ...-...   ....  . ............-++++#..        ..#+##+-........... ..    . .. ...-..                            
+                          . .  --.. .      .... .-.....--...---.        .-------....- -......  .  .....+.   .                            
+                       .......  ..--..        .........-.--.-+.-       .---..-.+.-.--... .....       --...........                        
+                        -....      . ..  ..  ..  ....-........+.-      .+-...-..-.-.- .  .. .-  ..  .     .-. .-.                        
+                    ... .. ...      ..  ......    .....---.--.+-.     .-+..-+.-.-- .     .- ...  ..        ...  . -.                     
+                     ...  ..-..........-...---....    .......-...-    .--......-.. .  . ..--.-...... .. ...- . ...-                      
+                     . .-+#+--.---....        ............+..-...+ ..--.+...--........ .     .     ....-...-+++-..                       
+                       ..---#+--....  ...    ....... .-.....-..--.-..-..-.-+........  ....       ..... .--++---..                        
+                       ....+##--..-.  ...     -..........-.---++-......--+---...... ......    .. . . ....-##+...                         
+                          ........ .     ..  ....-.+-+##-+-+++-.--+. ------++-+++#+--.... .        ............                          
+                              .  .  .... .....-    . .--++..-..-----+---..--.-++--... . .-.... . ...  .                                  
+                                              .. .-..--...-.----.-+.++------.........-...                                                
+                                              .-... -.....--.--+#++ .##+------..........-..                                              
+                                           .........- ..+--.--+-++...#++#--....+.. --........                                            
+                                        . .-.............-....----....#----..--.... ..-.....+..                                          
+                                     ...#-..-.........-..-.---+-. ... .--+----+..-..  .....-..+#..                                       
+                                    ..#-.-.......--.....-.--+##.... .....##+----.....-...  ..--.+-.                                      
+                                   ..---.... .-.-.......-++##+....     ...##+++-...... -.......----.                                     
+                                 ...-##+-....--... .....-++#--...      ...-+#++-.-.... ..--....-###-...                                  
+                                   +..-......-....-..-.--##-....       .....-#--..-..-...-- ..-..-.--                                    
+                                  ..       ......--...-.-.....            .....---....-.....   .    ...                                  
+                                 -.        .-. -+.-.-.... ..                ....--.....--.....       ..                                  
+                                 .        .....--.#.-+..                       . .+..#.-... ..                                           
+                                           .. .-.+-+....                        ...+--.-- . ..                                           
+                                             .--#--..                            ....-+#+..                                              
+                                             .-.-.                                  . .....                                              
+                                             .##-                                     .+#-                                               
+                                              ....                                    ....                                               
+                                             .. .                                      ....                                               
+                                             ...                                        ....
+</pre>
+
+<h1>Valerie</h1>
+
+<p><b>LLM Red Teaming &amp; Safety Evaluation</b></p>
+
+<p>
+  An automated pipeline for generating adversarial prompts, evaluating LLM responses,
+  detecting safety failures, and preserving evidence for analysis.
+</p>
+
+<br />
+
+<a href="https://valerie-beta.vercel.app/">
+  <img src="https://img.shields.io/badge/Live_Dashboard-valerie--beta.vercel.app-blue?style=for-the-badge&color=CBA0A6" alt="Live Dashboard" />
+</a>
+
+<br />
+
 </div>
 
 ---
 
-**Valerie** is an enterprise-ready framework for automated AI safety evaluation and forensic red teaming of Large Language Models (LLMs). It combines:
+## Overview
 
-- 🎯 **Adversarial Attack Generation**: Automated prompt engineering with 15+ techniques
-- 🔍 **Real-Time Intelligence**: Clustering, anomaly detection, and pattern recognition
-- 🔐 **Forensic Integrity**: SHA-256 hashing, tamper-evident logs, chain of custody
-- 📊 **Visual Dashboard**: Interactive graphs, live streaming, risk heatmaps
-- ⚡ **Production Scale**: Event-driven architecture, health checks, graceful degradation
+Valerie is a system for automated red teaming and safety evaluation of Large Language Models.
 
-Perfect for **AI safety teams**, **compliance auditors**, and **security researchers** evaluating LLM deployments.
+A campaign generates adversarial prompts, sends them to a target model, evaluates the resulting responses, and stores the evidence for later analysis.
+
+The system combines:
+
+* Adversarial prompt generation
+* Multi-provider LLM routing
+* Automated response evaluation
+* Evidence hashing and integrity checks
+* Campaign-level clustering
+* Anomaly detection
+* Risk visualization
+* Real-time execution updates
+
+The focus is on making LLM evaluations **repeatable, observable, and traceable** rather than treating a jailbreak attempt as an isolated prompt.
 
 ---
 
+## How It Works
 
-## 🚀 Quick Start
+A Valerie campaign follows a pipeline from attack generation to analysis:
 
-### 🎬 Option 1: Demo Mode (Recommended for Presentations)
+```mermaid
+flowchart LR
+    A[Campaign Configuration] --> B[Attack Generation]
+    B --> C[Target LLM]
+    C --> D[Response Evaluation]
+    D --> E[Evidence Storage]
+    E --> F[Intelligence Analysis]
+    F --> G[Dashboard]
+```
 
-Get a **fully functional demo** running in 60 seconds with pre-populated data:
+A campaign can be configured around a domain, attack strategy, target model, evaluation model, and concurrency.
+
+The resulting run is persisted and streamed to the frontend while it executes.
+
+---
+
+## Attack Generation
+
+Valerie uses adversarial prompting techniques to generate inputs intended to stress the target model's safety boundaries.
+
+Prompt resources are organized by domain and stored under `resources/`.
+
+The system supports domain-specific evaluation across areas such as:
+
+* General
+* BFSI
+* Healthcare
+* Pharmacy
+* Legal
+* HR
+* Ecommerce
+
+The attack generation layer is separated from the target model so that different attacker strategies and target models can be evaluated independently.
+
+---
+
+## Evaluation Pipeline
+
+After an adversarial prompt is generated, Valerie sends it to the configured target model.
+
+The response is then evaluated by the evaluation layer.
+
+```mermaid
+flowchart TD
+    A[Generated Prompt] --> B[Target Model]
+    B --> C[Target Response]
+    C --> D[Evaluation Model]
+    D --> E[Risk Assessment]
+    E --> F[Campaign Result]
+    F --> G[Evidence Store]
+```
+
+The evaluation stage tracks signals such as:
+
+* Safety violations
+* Prompt injection success
+* Policy violations
+* Risk level
+* Evaluation confidence
+
+Low-confidence results can be surfaced for further inspection rather than being treated as definitive.
+
+---
+
+## Campaign Architecture
+
+Valerie separates request handling from long-running campaign execution.
+
+```mermaid
+flowchart TB
+    U[User] --> FE[React Dashboard]
+
+    FE --> API[FastAPI API]
+
+    API --> DB[(MongoDB)]
+    API --> R[(Redis)]
+
+    R --> W[Worker]
+
+    W --> G[LangGraph Pipeline]
+
+    G --> ATTACK[Attack Generation]
+    G --> TARGET[Target LLM]
+    G --> JUDGE[Evaluation]
+
+    G --> FORENSICS[Forensics]
+    G --> INTEL[Intelligence]
+
+    FORENSICS --> DB
+    INTEL --> DB
+
+    W --> R
+    R --> STREAM[SSE Stream]
+
+    STREAM --> FE
+```
+
+This separation allows the API to remain responsive while the worker handles the expensive LLM evaluation workload.
+
+---
+
+## LangGraph Pipeline
+
+The campaign workflow is represented as typed state and executed through LangGraph.
+
+At a high level:
+
+```mermaid
+flowchart LR
+    A[Initialize Run] --> B[Generate Attack]
+    B --> C[Execute Target]
+    C --> D[Evaluate Response]
+    D --> E[Persist Evidence]
+    E --> F[Analyze Result]
+    F --> G[Publish Event]
+    G --> H[Next Attack]
+```
+
+The graph keeps campaign state separate from the API layer and makes individual stages easier to retry, observe, and extend.
+
+---
+
+## Forensic Evidence
+
+Valerie does more than store a final risk score.
+
+Prompts and responses are hashed when they enter the forensic layer using SHA-256.
+
+The resulting evidence can be linked into a hash chain so that modifications to previously recorded data can be detected.
+
+```mermaid
+flowchart LR
+    A[Prompt] --> B[SHA-256]
+    B --> C[Response]
+    C --> D[SHA-256]
+    D --> E[Evidence Record]
+    E --> F[Hash Chain]
+    F --> G[Audit History]
+```
+
+The forensic layer tracks:
+
+* Prompt hashes
+* Response hashes
+* Evidence provenance
+* Chain relationships
+* Audit events
+
+This makes an evaluation finding inspectable instead of reducing it to a single database field.
+
+---
+
+## Intelligence Layer
+
+Large campaigns can generate a significant number of individual results.
+
+Valerie includes an analysis layer for identifying patterns across those results.
+
+### Clustering
+
+DBSCAN is used to group similar attack or response patterns without requiring the number of clusters to be known beforehand.
+
+### Anomaly Detection
+
+Isolation Forest identifies results that differ significantly from the rest of the campaign.
+
+These outliers can be inspected separately for unusual model behavior.
+
+### Risk Analysis
+
+Campaign results can be aggregated into risk matrices and visualized through the dashboard.
+
+This allows comparisons across:
+
+* Attack techniques
+* Domains
+* Models
+* Risk categories
+* Campaigns
+
+---
+
+## Real-Time Execution
+
+Campaign progress is streamed from the backend to the frontend using Server-Sent Events.
+
+```mermaid
+sequenceDiagram
+    participant UI as Dashboard
+    participant API as FastAPI
+    participant Redis as Redis
+    participant Worker as Worker
+    participant LLM as Target / Judge
+
+    UI->>API: Start campaign
+    API->>Redis: Queue campaign
+    Redis->>Worker: Dispatch job
+
+    loop Campaign
+        Worker->>LLM: Generate / evaluate
+        LLM-->>Worker: Response
+        Worker->>Redis: Publish event
+        Redis-->>API: Campaign event
+        API-->>UI: SSE update
+    end
+
+    Worker->>Redis: Campaign complete
+    Redis-->>API: Final event
+    API-->>UI: Completion
+```
+
+This allows the dashboard to show campaign progress without repeatedly polling the API.
+
+---
+
+## Dashboard
+
+The frontend provides a visual interface for monitoring and investigating campaigns.
+
+It includes:
+
+* Campaign monitoring
+* Attack-chain visualization
+* Live execution updates
+* Risk heatmaps
+* Intelligence views
+* Evaluation results
+
+React Flow is used for graph-based visualizations, while Zustand manages frontend state.
+
+---
+
+## Security
+
+Valerie includes several controls around the API and evaluation pipeline:
+
+* API-key authentication
+* Constant-time credential comparison
+* Owner-based resource isolation
+* Input validation
+* Template sanitization
+* Environment-based secret configuration
+* Startup validation for missing configuration
+* Rate-limiting infrastructure
+
+Secrets should be supplied through environment variables and should never be committed to the repository.
+
+---
+
+## Reliability
+
+Campaign execution involves external LLM APIs, so failures are expected.
+
+The backend includes:
+
+* Retry handling with exponential backoff
+* Redis-based decoupling
+* Worker separation
+* Health endpoints
+* Connection pooling
+* Error tracking
+* Dead-letter handling for failed tasks
+* Graceful degradation paths
+
+The goal is to prevent a single failed model request from taking down an entire campaign.
+
+---
+
+## Architecture Patterns
+
+A few architectural decisions are central to Valerie.
+
+### Event-driven execution
+
+Redis separates API requests from campaign execution and provides a communication path between workers and consumers.
+
+### Typed pipeline state
+
+The LangGraph workflow uses typed state to make transitions between campaign stages explicit.
+
+### Separate read and write paths
+
+Campaign execution writes results while the dashboard primarily reads and streams those results.
+
+### Confidence tracking
+
+Evaluation confidence is retained so uncertain model judgments can be identified rather than hidden behind a binary result.
+
+### Evidence-first design
+
+The underlying prompt and response are retained alongside the evaluation instead of storing only the final classification.
+
+---
+
+## Project Structure
+
+```text
+valerie/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── stores/
+│   │   └── hooks/
+│   ├── Dockerfile.dev
+│   └── package.json
+│
+├── src/
+│   └── valerie/
+│       ├── api/
+│       ├── graph/
+│       ├── forensics/
+│       ├── intelligence/
+│       ├── knowledge/
+│       ├── learning/
+│       ├── db/
+│       ├── llm/
+│       └── worker/
+│
+├── resources/
+│   └── domain prompt datasets
+│
+├── docs/
+│   └── architecture and design documents
+│
+├── deploy/
+├── infra/
+├── tests/
+│
+├── demo_simulator.py
+├── seed_forensic_campaign.py
+├── purge_db.py
+├── docker-compose.yml
+├── Dockerfile
+├── DEMO_SETUP.md
+├── requirements.txt
+└── pytest.ini
+```
+
+---
+
+## Technology Stack
+
+| Layer               | Technologies                      |
+| ------------------- | --------------------------------- |
+| Backend             | Python, FastAPI, Uvicorn          |
+| Agent orchestration | LangGraph                         |
+| LLM integration     | LiteLLM, multiple model providers |
+| Database            | MongoDB                           |
+| Messaging           | Redis                             |
+| Frontend            | React, TypeScript, Vite           |
+| Styling             | Tailwind CSS                      |
+| State management    | Zustand                           |
+| Visualization       | React Flow                        |
+| Streaming           | Server-Sent Events                |
+| Analysis            | DBSCAN, Isolation Forest          |
+| Infrastructure      | Docker, Docker Compose            |
+
+---
+
+## Getting Started
+
+### Requirements
+
+* Python 3.12+
+* Node.js 20+
+* Docker
+* Docker Compose
+* MongoDB 6+
+* Redis 7+
+
+---
+
+### Demo Mode
+
+The repository includes a demo configuration and simulator for running the dashboard with pre-populated campaign data.
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/imshreyaskn/valerie.git && cd valerie
+git clone https://github.com/imshreyaskn/valerie.git
+cd valerie
 
-# 2. Copy demo configuration (pre-configured for reliability)
 cp .env.demo .env
 
-# 3. Start all services (API, Worker, Frontend, MongoDB, Redis)
 docker-compose up --build
+```
 
-# 4. Generate demo campaign data (optional - provides instant visualization)
+Generate demo campaign data:
+
+```bash
 python demo_simulator.py
 ```
 
-**Access Points:**
-- 🌐 **Frontend Dashboard**: http://localhost:5173 (visual graphs, live campaigns)
-- 🔧 **API Server**: http://localhost:8080/health
-- 📊 **Worker**: http://localhost:8081/health
+The default local services are:
 
-📖 **Full demo instructions**: See [DEMO_SETUP.md](DEMO_SETUP.md) for detailed script and troubleshooting.
+```text
+Frontend     http://localhost:5173
+API          http://localhost:8080
+Worker       http://localhost:8081
+```
+
+For the complete demo setup and troubleshooting instructions, see `DEMO_SETUP.md`.
 
 ---
 
-### 🏗️ Option 2: Full Self-Hosted Development
+### Development Setup
 
-For contributors and enterprise deployments:
-
-**Prerequisites:**
-- Python 3.12+
-- Node.js 20+ (for frontend)
-- Docker & Docker Compose
-- MongoDB 6+ (or use Docker container)
-- Redis 7+ (or use Docker container)
-
-**Installation:**
+Clone the repository:
 
 ```bash
-# 1. Clone and install Python dependencies
 git clone https://github.com/imshreyaskn/valerie.git
 cd valerie
+```
+
+Install backend dependencies:
+
+```bash
 pip install -r requirements.txt
+```
 
-# 2. Configure environment
+Create the environment file:
+
+```bash
 cp .env.example .env
-# Edit .env with your database URLs and API keys
+```
 
-# 3. Start infrastructure (MongoDB + Redis)
+Configure the required database connections and model-provider credentials.
+
+Start MongoDB and Redis:
+
+```bash
 docker-compose up mongodb redis
+```
 
-# 4. Initialize database schema
-# (Handled automatically on first API startup)
+Start the API:
 
-# 5. Start API server
+```bash
 cd src
-uvicorn valerie.api.main:app --reload --host 0.0.0.0 --port 8080
 
-# 6. In separate terminal, start worker
-uvicorn valerie.worker.executor:app --host 0.0.0.0 --port 8081
+uvicorn valerie.api.main:app \
+  --reload \
+  --host 0.0.0.0 \
+  --port 8080
+```
 
-# 7. In separate terminal, start frontend
+Start the worker in a separate terminal:
+
+```bash
+uvicorn valerie.worker.executor:app \
+  --host 0.0.0.0 \
+  --port 8081
+```
+
+Start the frontend:
+
+```bash
 cd frontend
+
 npm install
 npm run dev
 ```
 
 ---
 
-## 📂 Project Structure
+## Configuration
 
-```text
-valerie/
-├── frontend/               # React + TypeScript dashboard (Vite, Tailwind)
-│   ├── src/
-│   │   ├── components/    # Reusable UI components
-│   │   ├── pages/         # Route pages (MissionControl, Intelligence, etc.)
-│   │   ├── stores/        # Zustand state management
-│   │   └── hooks/         # Custom React hooks (useRunStream)
-│   ├── Dockerfile.dev     # Development Docker setup
-│   └── package.json
-│
-├── src/valerie/           # Core Python backend
-│   ├── api/               # FastAPI routers and auth
-│   ├── graph/             # LangGraph pipeline nodes
-│   ├── forensics/         # SHA-256 hashing, evidence chain
-│   ├── intelligence/      # Clustering, anomaly detection
-│   ├── knowledge/         # Embeddings, vector search
-│   ├── learning/          # Genome evolution, feedback loops
-│   ├── db/                # MongoDB models and indexes
-│   ├── llm/               # Multi-provider LLM router
-│   └── worker/            # Task executor service
-├── resources/             # Domain prompt datasets (CSV)
-├── docs/                  # Architecture & design documents
-│
-├── docker-compose.yml     # Full stack orchestration
-├── demo_simulator.py      # Demo data generator
-├── DEMO_SETUP.md          # Presentation guide
-└── requirements.txt       # Python dependencies
+Copy the example environment file:
+
+```bash
+cp .env.example .env
 ```
 
----
+The configuration includes values for:
 
-## 🎯 Key Features
+* MongoDB connection
+* Redis connection
+* API authentication
+* LLM provider credentials
+* Application URLs
+* Worker configuration
+* Frontend/backend integration
 
-### 🔐 Forensic Integrity
-- **SHA-256 Content Hashing**: Every prompt and response hashed on ingestion
-- **Tamper-Evident Storage**: Hash chain verification detects modifications
-- **Chain of Custody**: Complete provenance tracking for all evidence
-- **Immutable Audit Log**: Append-only ledger for compliance requirements
-
-### 📊 Visual Intelligence
-- **Interactive Graph Visualization**: See attack chains as node diagrams (React Flow)
-- **Real-Time Streaming**: Live SSE updates during campaign execution
-- **Clustering Analysis**: DBSCAN groups similar attack patterns
-- **Anomaly Detection**: Isolation Forest identifies unusual responses
-- **Risk Heatmaps**: Color-coded severity matrices
-
-### ⚡ Production Reliability
-- **Health Checks**: Comprehensive `/health` endpoint monitoring all services
-- **Graceful Degradation**: Consumer error tracking with circuit breakers
-- **Connection Pooling**: Optimized MongoDB (50 max) and Redis connections
-- **Retry Logic**: Exponential backoff for LLM API failures
-- **Demo Mode**: Hardcoded success scenarios for reliable presentations
-
-### 🛡️ Security
-- **Authentication**: API keys with constant-time comparison (timing attack resistant)
-- **Authorization**: Owner-based resource isolation
-- **Input Validation**: Template sanitization prevents injection attacks
-- **No Hardcoded Secrets**: Fail-fast validation on startup
-- **Rate Limiting Ready**: Token bucket infrastructure in place
+Never commit the populated `.env` file.
 
 ---
 
-## 🏗️ Architecture Highlights
+## Example Campaign
 
-For detailed architecture documentation, see [SYSTEM_ARCHITECTURE_COMPLETE.md](docs/SYSTEM_ARCHITECTURE_COMPLETE.md).
+A typical evaluation looks like:
 
-**Key Design Patterns:**
-- **Event-Driven**: Redis pub/sub decouples components
-- **CQRS**: Separate read/write models for scalability
-- **Type-Safe State**: TypedDict for pipeline state management
-- **Confidence Tracking**: Low-confidence evaluations flagged for review
-- **Dead Letter Queues**: Failed tasks preserved for analysis
+```text
+Campaign
+   │
+   ├── Domain: BFSI
+   │
+   ├── Attack Generation
+   │       ├── Attack A
+   │       ├── Attack B
+   │       └── Attack C
+   │
+   ├── Target Model
+   │       └── Response
+   │
+   ├── Evaluation
+   │       ├── Risk
+   │       └── Confidence
+   │
+   ├── Forensics
+   │       ├── Prompt Hash
+   │       └── Response Hash
+   │
+   └── Intelligence
+           ├── Cluster
+           └── Anomaly
+```
 
----
-
-## 🎓 Why Valerie Stands Out (For Academic Use)
-
-This project demonstrates **production-grade engineering** rarely seen in academic projects:
-
-1. **Forensic Focus**: Most student projects ignore evidence preservation; Valerie includes SHA-256 hashing and tamper detection
-2. **Visual Sophistication**: Interactive React Flow graphs impress in demonstrations
-3. **Real-World Alignment**: Maps to NIST AI RMF, SOC 2, GDPR compliance requirements
-4. **Demo Reliability**: Pre-configured demo mode ensures 100% successful presentations
-5. **Comprehensive Documentation**: Architecture docs, demo scripts, troubleshooting guides
-
-**Perfect for:** AI safety courses, security engineering capstones, compliance technology demos
-
----
-
-## 📧 Support & Contributing
-
-**Developer**: Shreyas ([imshreyaskn@gmail.com](mailto:imshreyaskn@gmail.com))  
-**GitHub**: https://github.com/imshreyaskn/valerie  
-**Documentation**: https://valerie-beta.vercel.app/
-
-### Quick Links
-- 📖 [Demo Setup Guide](DEMO_SETUP.md) - For presentations
-- 🏗️ [System Architecture](docs/SYSTEM_ARCHITECTURE_COMPLETE.md) - Technical deep dive
-- 🔐 [Forensics Module](src/valerie/forensics/evidence.py) - Evidence handling
-- 🎬 [Demo Simulator](demo_simulator.py) - Generate sample data
+The dashboard then exposes the resulting campaign state and analysis.
 
 ---
 
-## 📄 License
+## Why The Forensic Layer Matters
 
-MIT License - See LICENSE file for details.
+A red-team result is only useful if the underlying evidence can be inspected.
+
+Instead of storing:
+
+```text
+attack → failed
+```
+
+Valerie keeps the relationship between:
+
+```text
+attack
+  ↓
+prompt
+  ↓
+target response
+  ↓
+evaluation
+  ↓
+risk
+  ↓
+evidence
+```
+
+This makes it possible to go back from an observed failure to the exact interaction that produced it.
+
+---
+
+## Design Decisions
+
+### Generation and evaluation are separate
+
+The model responsible for generating an adversarial input does not have to be the same model responsible for judging the target response.
+
+This allows different combinations of attacker, target, and judge models.
+
+### Campaign execution is asynchronous
+
+LLM calls can be slow and unreliable.
+
+Moving campaign execution into a worker prevents long-running evaluations from blocking normal API requests.
+
+### Evidence is stored with the result
+
+A risk score without its underlying prompt and response is difficult to investigate.
+
+The forensic layer keeps the raw interaction connected to the evaluation.
+
+### Analysis happens at campaign level
+
+Individual responses can be difficult to interpret in isolation.
+
+Clustering and anomaly detection provide another level of analysis across the complete campaign.
+
+---
+
+## Current Scope
+
+Valerie currently focuses on automated LLM safety evaluation through adversarial prompting.
+
+The main implemented areas are:
+
+* Campaign orchestration
+* Adversarial prompt generation
+* Target model execution
+* Automated response evaluation
+* SHA-256 evidence hashing
+* Hash-chain verification
+* Campaign intelligence
+* Real-time SSE updates
+* React-based visualization
+* MongoDB persistence
+* Redis-backed worker execution
+
+The repository also contains knowledge and learning components intended to extend the evaluation loop over time.
+
+---
+
+## Lessons Learned
+
+Building Valerie highlighted a different problem from building a normal LLM application.
+
+Generating an adversarial prompt is only one part of the system.
+
+The harder engineering problem is building the infrastructure around the experiment:
+
+* How is the run represented?
+* How are failures handled?
+* How do we preserve the original evidence?
+* How do we compare thousands of responses?
+* How do we surface unusual results?
+* How does the UI observe a long-running campaign?
+
+That led to an architecture where **generation, execution, evaluation, evidence, and analysis are separate stages**.
+
+---
+
+## Live Application
+
+[Valerie Dashboard](https://valerie-beta.vercel.app/)
+
+---
+
+<div align="center">
+
+Built for experimenting with LLM safety, adversarial evaluation, and AI security.
+
+</div>
