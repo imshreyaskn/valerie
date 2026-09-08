@@ -234,6 +234,20 @@ class Settings(BaseSettings):
         description="Allowed CORS origins"
     )
 
+    @field_validator('allowed_origins', mode='before')
+    @classmethod
+    def parse_allowed_origins(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith('[') and v.endswith(']'):
+                import json
+                try:
+                    return json.loads(v)
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v.split(',') if origin.strip()]
+        return v
+
     allow_local_llm_targets: bool = Field(
         default=False,
         alias="ALLOW_LOCAL_LLM_TARGETS",
