@@ -208,6 +208,17 @@ async def create_run(
     return {"run_id": run_id, "status": "queued"}
 
 
+def _normalize_run(run: dict) -> dict:
+    run.pop("_id", None)
+    res = run.get("results") or {}
+    if "avg_risk_score" not in run:
+        run["avg_risk_score"] = res.get("avg_risk_score", 0.0)
+    if "successful_attacks" not in run:
+        run["successful_attacks"] = res.get("successful_attacks", 0)
+    if "total_tasks" not in run:
+        run["total_tasks"] = res.get("total_tasks", 0)
+    return run
+
 @router.get("/")
 async def list_runs(
     limit: int = Query(default=50, ge=1, le=200),
@@ -218,9 +229,8 @@ async def list_runs(
     total = await db.pipeline_runs.count_documents(query)
     
     runs_cursor = db.pipeline_runs.find(query).sort("created_at", -1).skip(offset).limit(limit)
-    runs = await runs_cursor.to_list(length=limit)
-    for run in runs:
-        run.pop("_id", None)
+    raw_runs = await runs_cursor.to_list(length=limit)
+    runs = [_normalize_run(r) for r in raw_runs]
         
     has_more = (offset + len(runs)) < total
     return {
@@ -239,8 +249,7 @@ async def get_run(run_id: str, user=Depends(require_api_key)):
     run = await db.pipeline_runs.find_one(query)
     if not run:
         raise HTTPException(404, "Run not found")
-    run.pop("_id", None)
-    return run
+    return _normalize_run(run)
 
 @router.post("/{run_id}/cancel")
 async def cancel_run(run_id: str, user=Depends(require_api_key)):

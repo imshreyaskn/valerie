@@ -64,7 +64,7 @@ export default function Campaigns() {
   const totalTasks = runs.reduce((sum, r) => sum + (r.total_tasks || 0), 0);
   const totalDefended = Math.max(0, totalTasks - totalBreaches);
 
-  const validScores = runs.map((r) => r.avg_risk_score).filter((s) => s > 0);
+  const validScores = runs.map((r) => r.avg_risk_score ?? (r as any).results?.avg_risk_score ?? 0).filter((s) => s > 0);
   const meanRiskScore = validScores.length
     ? validScores.reduce((a, b) => a + b, 0) / validScores.length
     : 0;
@@ -98,7 +98,8 @@ export default function Campaigns() {
       if (statusFilter !== 'ALL' && run.status !== statusFilter.toLowerCase()) return false;
       if (domainFilter !== 'ALL' && run.domain?.toLowerCase() !== domainFilter.toLowerCase()) return false;
       if (endpointFilter !== 'ALL' && run.endpoint_id !== endpointFilter) return false;
-      if (minRisk > 0 && (run.avg_risk_score || 0) < minRisk) return false;
+      const runRisk = run.avg_risk_score ?? (run as any).results?.avg_risk_score ?? 0;
+      if (minRisk > 0 && runRisk < minRisk) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matches =
@@ -392,11 +393,16 @@ export default function Campaigns() {
                     </div>
                     <div className="text-right">
                       <span className="text-[9px] text-taupe uppercase block">RISK INDEX</span>
-                      <span className={`text-base font-bold tabular-nums ${
-                        run.avg_risk_score >= 0.7 ? 'text-maroon' : run.avg_risk_score >= 0.4 ? 'text-camel' : 'text-slate'
-                      }`}>
-                        {run.avg_risk_score.toFixed(2)}
-                      </span>
+                      {(() => {
+                        const score = run.avg_risk_score ?? (run as any).results?.avg_risk_score ?? 0;
+                        return (
+                          <span className={`text-base font-bold tabular-nums ${
+                            score >= 0.7 ? 'text-maroon' : score >= 0.4 ? 'text-camel' : 'text-slate'
+                          }`}>
+                            {score.toFixed(2)}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -527,14 +533,21 @@ export default function Campaigns() {
 
                       {/* Risk Score */}
                       <div className="p-3 md:p-4 md:hairline-right text-left md:text-right">
-                        <span className={`font-mono text-base font-bold tabular-nums block leading-tight ${
-                          run.avg_risk_score >= 0.7 ? 'text-maroon' : run.avg_risk_score >= 0.4 ? 'text-camel' : 'text-slate'
-                        }`}>
-                          {run.avg_risk_score.toFixed(2)}
-                        </span>
-                        <span className="text-[9px] text-taupe uppercase block">
-                          {run.avg_risk_score >= 0.7 ? 'CRITICAL' : run.avg_risk_score >= 0.4 ? 'ELEVATED' : 'NOMINAL'}
-                        </span>
+                        {(() => {
+                          const score = run.avg_risk_score ?? (run as any).results?.avg_risk_score ?? 0;
+                          return (
+                            <>
+                              <span className={`font-mono text-base font-bold tabular-nums block leading-tight ${
+                                score >= 0.7 ? 'text-maroon' : score >= 0.4 ? 'text-camel' : 'text-slate'
+                              }`}>
+                                {score.toFixed(2)}
+                              </span>
+                              <span className="text-[9px] text-taupe uppercase block">
+                                {score >= 0.7 ? 'CRITICAL' : score >= 0.4 ? 'ELEVATED' : 'NOMINAL'}
+                              </span>
+                            </>
+                          );
+                        })()}
                       </div>
 
                       {/* State Badge */}
