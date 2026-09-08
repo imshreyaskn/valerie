@@ -262,12 +262,23 @@ export interface HistoricalTaskResult {
   id?: string;
   task_id?: string;
   technique_id?: string;
+  technique?: string;
   harm_type?: string;
+  harm_type_group?: string;
   is_breakthrough?: boolean;
   overall_risk_score?: number;
   iterations?: number;
+  max_iterations?: number;
   adversarial_prompt?: string;
   target_response?: string;
+  judge_reasoning?: string;
+  evaluator_critique?: string;
+  vector_scores?: VectorScores;
+  vector?: VectorScores;
+  iterations_history?: IterationRecord[];
+  lineage_chain?: LineageNode[];
+  judge_verdict?: JudgeVerdict;
+  created_at?: string;
 }
 
 export interface RunResultsResponse {

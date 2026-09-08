@@ -314,23 +314,28 @@ export const usePipelineStore = create<PipelineState>()(
           const taskId = r.task_id || r.id || `task-${idx}`;
           const isBreakthrough = r.is_breakthrough ?? ((r.overall_risk_score ?? 0) >= 0.7);
           const score = r.overall_risk_score ?? 0;
-          const iters = r.iterations ?? 1;
+          const iters = r.iterations ?? (Array.isArray(r.iterations_history) ? r.iterations_history.length : 1);
 
           newTasks[taskId] = {
             task_id: taskId,
             run_id: runId,
             harm_type: r.harm_type || 'general',
-            technique: r.technique_id || 'unknown',
-            harm_type_group: r.harm_type || r.technique_id,
+            technique: r.technique_id || r.technique || 'unknown',
+            harm_type_group: r.harm_type_group || r.harm_type || r.technique_id || r.technique,
             status: isBreakthrough ? 'breakthrough' : 'defended',
             iterations: iters,
-            max_iterations: Math.max(3, iters),
+            max_iterations: Math.max(iters, r.max_iterations || 3),
             risk_score: score,
             is_breakthrough: isBreakthrough,
             adversarial_prompt: r.adversarial_prompt || '',
             target_response: r.target_response || '',
+            judge_reasoning: r.judge_reasoning || r.evaluator_critique || '',
+            vector_scores: r.vector_scores || r.vector,
+            iterations_history: r.iterations_history || [],
+            lineage_chain: r.lineage_chain || [],
+            judge_verdict: r.judge_verdict,
             prompt: r.adversarial_prompt || '',
-            created_at: now,
+            created_at: r.created_at || now,
             last_updated: now,
           };
         });
