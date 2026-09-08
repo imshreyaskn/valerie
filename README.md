@@ -1,6 +1,7 @@
 <div align="center">
 
 <pre>
+  
 ⣠⢠⡤⡤⠠⢤⢠⡀⡀⠀⠀⠒⡀⠀⡀⠒⠀⠀⠀⣀⣠⠄⠠⣄⣀⣤⡄
 ⠈⠳⣿⡤⠤⡏⠀⠉⠙⠰⣄⠀⢰⢠⠃⢀⡤⠎⠋⠉⠀⢹⠤⢼⣭⠍⠀
 ⠀⠀⠐⢷⡅⠑⢒⡤⠤⠀⡈⠠⢀⣌⡰⠉⡀⠀⠠⢄⡒⠓⢨⣿⠂⠀⠀
@@ -11,7 +12,6 @@
 ⠀⠀⠀⠀⠀⠀⠀⢲⠛⠈⠈⠀⠀⠀⠀⠈⠉⠐⢉⡏⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠰⡛⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠾⠄⠀⠀⠀⠀⠀⠀
 
-</pre>
 
 <h1>Valerie</h1>
 
@@ -21,6 +21,7 @@
 An automated pipeline for generating adversarial prompts, evaluating LLM responses,
 detecting safety failures, and preserving evidence for analysis.
 </p>
+</pre>
 
 <a href="https://valerie-beta.vercel.app/">
   <img src="https://img.shields.io/badge/Live_Application-valerie--beta.vercel.app-CBA0A6?style=for-the-badge" alt="Live Application" />
