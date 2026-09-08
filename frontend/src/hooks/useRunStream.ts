@@ -53,7 +53,7 @@ export function useRunStream(runId: string | null) {
         const { token } = await api.getStreamToken(runId);
         if (cancelled) return;
 
-        const baseUrl = import.meta.env.VITE_API_URL || '/api';
+        const baseUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
         const url = `${baseUrl}/runs/stream/${runId}?token=${encodeURIComponent(token)}`;
         const eventSource = new EventSource(url);
         eventSourceRef.current = eventSource;

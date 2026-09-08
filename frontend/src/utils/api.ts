@@ -12,7 +12,7 @@ import type {
   RunResultsResponse,
 } from '../types/domain';
 
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+const API_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
 
 async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('vl_jwt');
