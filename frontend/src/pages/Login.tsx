@@ -39,8 +39,19 @@ export default function Login() {
       }
     } catch (err: unknown) {
       let msg = err instanceof Error ? err.message : 'Authentication failed';
-      try { msg = JSON.parse(msg).detail || msg; } catch { /* keep original */ }
-      setError(msg);
+      try {
+        const parsed = JSON.parse(msg);
+        if (typeof parsed.detail === 'string') {
+          msg = parsed.detail;
+        } else if (Array.isArray(parsed.detail)) {
+          msg = parsed.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+        } else if (parsed.message) {
+          msg = parsed.message;
+        }
+      } catch {
+        /* keep original */
+      }
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setLoading(false);
     }
@@ -97,11 +108,12 @@ export default function Login() {
 
             <div>
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate mb-1">
-                SECURITY PASSPHRASE
+                SECURITY PASSPHRASE <span className="text-[10px] text-taupe font-normal lowercase">(min 8 characters)</span>
               </label>
               <input
                 type="password"
                 required
+                minLength={8}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 className="w-full bg-linen border border-hairline px-3 py-2 text-xs font-mono text-slate focus:outline-none focus:border-slate"
