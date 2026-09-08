@@ -199,7 +199,7 @@ export function CommandPalette() {
                 <kbd className="border border-hairline bg-ivory rounded px-1 py-0.2">↵</kbd> EXECUTE
               </span>
             </div>
-            <span>VALERIE_OS // COMMAND_DISPATCH</span>
+            <span>VALERIE_OS · COMMAND_DISPATCH</span>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

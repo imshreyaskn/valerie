@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { usePipelineStore } from '../../stores/pipelineStore';
-import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useLauncherStore } from '../../stores/launcherStore';
 import { api } from '../../utils/api';
 import type { Run } from '../../types/domain';
 import type { FilterState } from '../../types/filters';
 import { computeTaskMetrics } from '../../utils/taskMetrics';
 import { useHotkeyFocus } from '../../hooks/useHotkeyFocus';
-import { TelemetryRow } from '../ui';
+import { parseUtcDate } from '../../utils/date';
+import { TelemetryRow, ConfirmModal, AnimatedNumber } from '../ui';
 import { SegmentFilter } from '../ui/SegmentFilter';
 import { VTooltip } from '../ui';
 import {
@@ -24,7 +24,8 @@ interface CommandBarProps {
 }
 
 // ── Instrument Cluster (Swiss telemetry) ──────────────────────────────────────
-const InstrumentCluster: React.FC = () => {
+const InstrumentCluster: React.FC = React.memo(() => {
+  const activeRunId    = usePipelineStore(s => s.activeRunId);
   const liveTasks      = usePipelineStore(s => s.liveTasks);
   const runStats       = usePipelineStore(s => s.runStats);
   const activeRunMeta  = usePipelineStore(s => s.activeRunMeta);
@@ -33,73 +34,172 @@ const InstrumentCluster: React.FC = () => {
   const tasks = useMemo(() => Object.values(liveTasks), [liveTasks]);
   const metrics = useMemo(() => computeTaskMetrics(tasks, runStats), [tasks, runStats]);
 
+  const isGlobalStream = !activeRunId || activeRunId === 'all';
+  const isFailed = !isGlobalStream && (runStats.status === 'failed' || activeRunMeta?.status === 'failed' || Boolean(activeRunMeta?.error_message));
+  const isCompleted = !isGlobalStream && !isFailed && (runStats.status === 'completed' || activeRunMeta?.status === 'completed' || (metrics.total > 0 && metrics.completed >= metrics.total));
+  const isRunning = !isGlobalStream && !isFailed && !isCompleted && (runStats.status === 'running' || activeRunMeta?.status === 'running');
+  const currentStatus = isGlobalStream ? 'live' : isFailed ? 'failed' : isCompleted ? 'completed' : isRunning ? 'running' : 'idle';
+
   const [elapsed, setElapsed] = useState('00m 00s');
   useEffect(() => {
-    const str = activeRunMeta?.started_at || runStats.started_at;
-    if (!str || runStats.status === 'idle') { setElapsed('00m 00s'); return; }
-    const t0 = new Date(str).getTime();
-    if (isNaN(t0)) { setElapsed('00m 00s'); return; }
+    if (isGlobalStream) {
+      setElapsed('00m 00s');
+      return;
+    }
+
+    const startStr = activeRunMeta?.started_at || runStats.started_at;
+    if (!startStr || currentStatus === 'idle') {
+      setElapsed('00m 00s');
+      return;
+    }
+    const t0 = parseUtcDate(startStr).getTime();
+    if (isNaN(t0)) {
+      setElapsed('00m 00s');
+      return;
+    }
+
+    if (isCompleted) {
+      const endStr = activeRunMeta?.completed_at || runStats.completed_at;
+      let t1: number | null = null;
+      if (endStr) {
+        const parsed = parseUtcDate(endStr).getTime();
+        if (!isNaN(parsed) && parsed >= t0) t1 = parsed;
+      }
+      if (t1 === null && tasks.length > 0) {
+        const taskTimes = tasks
+          .map(t => new Date(t.last_updated || t.created_at || '').getTime())
+          .filter(t => !isNaN(t) && t >= t0);
+        if (taskTimes.length > 0) {
+          t1 = Math.max(...taskTimes);
+        }
+      }
+      if (t1 === null) {
+        t1 = t0;
+      }
+      const d = Math.max(0, Math.floor((t1 - t0) / 1000));
+      setElapsed(`${String(Math.floor(d / 60)).padStart(2, '0')}m ${String(d % 60).padStart(2, '0')}s`);
+      return;
+    }
+
+    if (isFailed) {
+      return;
+    }
+
     const tick = () => {
       const d = Math.max(0, Math.floor((Date.now() - t0) / 1000));
       setElapsed(`${String(Math.floor(d / 60)).padStart(2, '0')}m ${String(d % 60).padStart(2, '0')}s`);
     };
+
     tick();
-    if (runStats.status === 'running') {
+    if (isRunning) {
       const id = setInterval(tick, 1000);
       return () => clearInterval(id);
     }
-  }, [runStats.status, runStats.started_at, activeRunMeta?.started_at]);
+  }, [isGlobalStream, currentStatus, isFailed, isCompleted, isRunning, runStats.started_at, activeRunMeta?.started_at, runStats.completed_at, activeRunMeta?.completed_at, tasks]);
 
   const cells = [
     {
       index: '1.01',
       label: 'BRANCHES',
-      value: <><span>{metrics.completed}</span><span className="text-steel text-lg font-normal"> / {metrics.total || '—'}</span></>,
-      sublabel: metrics.total > 0 ? `${metrics.coveragePct}% COVERAGE` : 'STANDBY',
+      value: (
+        <>
+          <AnimatedNumber value={metrics.completed} />
+          <span className="text-steel text-lg font-normal">
+            {' '}/ {metrics.total > 0 ? <AnimatedNumber value={metrics.total} /> : '—'}
+          </span>
+        </>
+      ),
+      sublabel: metrics.total > 0 ? (
+        <>
+          <AnimatedNumber value={metrics.coveragePct} suffix="%" /> COVERAGE
+        </>
+      ) : 'STANDBY',
     },
     {
       index: '1.02',
       label: 'BREAKTHROUGHS',
-      value: <span className={metrics.breakthroughs > 0 ? 'text-maroon' : 'text-slate'}>{metrics.breakthroughs > 0 ? '◆ ' : ''}{metrics.breakthroughs}</span>,
-      sublabel: metrics.completed > 0 ? `${metrics.bypassPct}% BYPASS` : '0% OBSERVED',
+      value: (
+        <span className={metrics.breakthroughs > 0 ? 'text-maroon' : 'text-slate'}>
+          {metrics.breakthroughs > 0 ? '◆ ' : ''}
+          <AnimatedNumber value={metrics.breakthroughs} />
+        </span>
+      ),
+      sublabel: metrics.completed > 0 ? (
+        <>
+          <AnimatedNumber value={metrics.bypassPct} suffix="%" /> BYPASS
+        </>
+      ) : '0% OBSERVED',
     },
     {
       index: '1.03',
       label: 'DEFENDED',
-      value: <span className={metrics.defended > 0 ? 'text-olive' : 'text-slate'}>{metrics.defended > 0 ? '✓ ' : ''}{metrics.defended}</span>,
-      sublabel: metrics.completed > 0 ? `${metrics.resistancePct}% RESISTANCE` : '100% CLEAN',
+      value: (
+        <span className={metrics.defended > 0 ? 'text-olive' : 'text-slate'}>
+          {metrics.defended > 0 ? '✓ ' : ''}
+          <AnimatedNumber value={metrics.defended} />
+        </span>
+      ),
+      sublabel: metrics.completed > 0 ? (
+        <>
+          <AnimatedNumber value={metrics.resistancePct} suffix="%" /> RESISTANCE
+        </>
+      ) : '100% CLEAN',
     },
     {
       index: '1.04',
       label: 'MEAN RISK',
       value: (
         <span className={runStats.avg_risk_score >= 0.7 ? 'text-maroon' : runStats.avg_risk_score >= 0.4 ? 'text-camel' : 'text-slate'}>
-          {runStats.avg_risk_score.toFixed(2)}
+          <AnimatedNumber value={runStats.avg_risk_score} decimals={2} />
         </span>
       ),
       sublabel: runStats.avg_risk_score >= 0.7 ? 'CRITICAL' : runStats.avg_risk_score >= 0.4 ? 'ELEVATED' : 'NOMINAL',
     },
     {
       index: '1.05',
-      label: 'RUN DURATION',
-      value: <span className="text-slate">{elapsed}</span>,
+      label: 'EXECUTION TIME',
+      value: isGlobalStream ? '00m 00s' : elapsed,
       sublabel: (
-        <span className="flex items-center gap-1.5">
-          <span className={`w-1.5 h-1.5 rounded-full ${streamHealth === 'connected' ? 'bg-olive animate-pulse-dot' : streamHealth === 'paused' ? 'bg-camel' : 'bg-steel/40'}`} />
-          {streamHealth === 'connected' ? 'STREAM ACTIVE' : streamHealth === 'paused' ? 'STREAM PAUSED' : runStats.status.toUpperCase()}
+        <span className="flex items-center gap-1.5 font-mono">
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              streamHealth === 'connected' && isRunning
+                ? 'bg-olive animate-pulse'
+                : streamHealth === 'connecting'
+                ? 'bg-camel animate-pulse'
+                : isCompleted
+                ? 'bg-olive'
+                : isFailed
+                ? 'bg-maroon'
+                : 'bg-steel'
+            }`}
+          />
+          <span>
+            {isGlobalStream
+              ? 'STREAM ACTIVE'
+              : isFailed
+              ? 'TERMINATED'
+              : isCompleted
+              ? 'COMPLETED'
+              : isRunning
+              ? 'STREAM ACTIVE'
+              : String(currentStatus || 'IDLE').toUpperCase()}
+          </span>
         </span>
       ),
     },
   ];
 
   return <TelemetryRow cells={cells} ariaLabel="Execution instruments" />;
-};
+});
+
+InstrumentCluster.displayName = 'InstrumentCluster';
 
 // ── Execution Circuit Progress Bar ─────────────────────────────────────────
 export const ExecutionCircuit: React.FC<{
   onFilterByStatus?: (s: string) => void;
   activeStatusFilter?: string;
-}> = ({ onFilterByStatus, activeStatusFilter }) => {
+}> = React.memo(({ onFilterByStatus, activeStatusFilter }) => {
   const liveTasks = usePipelineStore(s => s.liveTasks);
   const runStats  = usePipelineStore(s => s.runStats);
 
@@ -110,8 +210,9 @@ export const ExecutionCircuit: React.FC<{
   const mutating     = tasks.filter(t => t.status === 'mutating').length;
   const transmitting = tasks.filter(t => t.status === 'transmitting').length;
   const scoring      = tasks.filter(t => t.status === 'scoring').length;
+  const activeCount  = mutating + transmitting + scoring;
 
-  const segments = [
+  const barSegments = [
     { label: 'QUEUED',       count: m.queued,        color: 'bg-hairline',    filter: 'QUEUED' },
     { label: 'MUTATING',     count: mutating,        color: 'bg-steel/60',    filter: 'ACTIVE' },
     { label: 'TRANSMITTING', count: transmitting,    color: 'bg-powder',      filter: 'ACTIVE' },
@@ -121,19 +222,30 @@ export const ExecutionCircuit: React.FC<{
     { label: 'UNRESOLVED',   count: m.unresolved,    color: 'bg-maroon/40',   filter: 'UNRESOLVED' },
   ].filter(s => s.count > 0 || m.total === 0);
 
+  const filterOptions = [
+    { id: 'ALL',          label: 'ALL',          count: tasks.length },
+    { id: 'QUEUED',       label: 'QUEUED',       count: m.queued,        dot: 'bg-hairline' },
+    { id: 'ACTIVE',       label: 'ACTIVE',       count: activeCount,     dot: 'bg-camel' },
+    { id: 'DEFENDED',     label: 'DEFENDED',     count: m.defended,      dot: 'bg-olive' },
+    { id: 'BREAKTHROUGH', label: 'BREAKTHROUGH', count: m.breakthroughs, dot: 'bg-maroon' },
+    { id: 'UNRESOLVED',   label: 'UNRESOLVED',   count: m.unresolved,    dot: 'bg-maroon/40' },
+  ].filter(opt => opt.id === 'ALL' || (opt.count ?? 0) > 0 || m.total === 0);
+
   return (
     <div className="py-3 hairline-bottom space-y-1.5">
       <div className="flex items-center justify-between font-mono text-[10px] text-steel mb-1">
         <span className="uppercase font-bold text-slate tracking-wider">EXECUTION CIRCUIT</span>
-        <span className="tabular-nums">{m.completed} / {m.total || '—'} COMPLETE ({m.coveragePct}%)</span>
+        <span className="tabular-nums">
+          <AnimatedNumber value={m.completed} /> / {m.total > 0 ? <AnimatedNumber value={m.total} /> : '—'} COMPLETE (<AnimatedNumber value={m.coveragePct} suffix="%" />)
+        </span>
       </div>
 
       <div className="h-2 w-full bg-linen flex overflow-hidden">
         {m.total === 0 ? (
           <div className="w-full h-full animate-sweep" />
         ) : (
-          segments.map(seg => (
-            <VTooltip key={seg.label + seg.filter} content={`${seg.label}: ${seg.count}`}>
+          barSegments.map((seg, idx) => (
+            <VTooltip key={`${seg.label}-${idx}`} content={`${seg.label}: ${seg.count}`}>
               <button
                 onClick={() => onFilterByStatus?.(seg.filter)}
                 style={{ width: `${Math.max(pct(seg.count), 1.5)}%` }}
@@ -149,17 +261,16 @@ export const ExecutionCircuit: React.FC<{
         ariaLabel="Filter by execution state"
         value={activeStatusFilter ?? 'ALL'}
         onChange={(id) => onFilterByStatus?.(id)}
-        options={[
-          { id: 'ALL', label: 'ALL', count: tasks.length },
-          ...segments.map((s) => ({ id: s.filter, label: s.label, count: s.count, dot: s.color })),
-        ]}
+        options={filterOptions}
       />
     </div>
   );
-};
+});
+
+ExecutionCircuit.displayName = 'ExecutionCircuit';
 
 // ── Main Command Bar ───────────────────────────────────────────────────────
-export const CommandBar: React.FC<CommandBarProps> = ({
+export const CommandBar: React.FC<CommandBarProps> = React.memo(({
   filters, onFilterChange, onResetFilters, viewMode, onViewModeChange,
 }) => {
   const activeRunId  = usePipelineStore(s => s.activeRunId);
@@ -171,7 +282,6 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   const eventCount   = usePipelineStore(s => s.eventCount);
   const triggerReconnect = usePipelineStore(s => s.triggerReconnect);
   const intelligenceFeed = usePipelineStore(s => s.intelligenceFeed);
-  const { density, setDensity } = useWorkspaceStore();
   const openLauncher = useLauncherStore((s) => s.openLauncher);
 
   const [runs, setRuns] = useState<Run[]>([]);
@@ -262,26 +372,56 @@ export const CommandBar: React.FC<CommandBarProps> = ({
     { id: 'UNRESOLVED',   label: 'FAIL',   count: counts.unresolved,   dot: 'bg-maroon/50' },
   ];
 
+  const [showAbortConfirm, setShowAbortConfirm] = useState(false);
+  const [isAborting, setIsAborting] = useState(false);
+
+  const isSelectedRunRunning = Boolean(
+    activeRunId &&
+    activeRunId !== 'all' &&
+    activeRunMeta?.status === 'running' &&
+    !activeRunMeta?.error_message
+  );
+
+  const handleConfirmAbort = async () => {
+    if (!activeRunId || activeRunId === 'all') return;
+    setIsAborting(true);
+    try {
+      await api.cancelRun(activeRunId);
+      setActiveRunMeta(activeRunMeta ? { ...activeRunMeta, status: 'failed', error_message: 'Campaign aborted by operator' } : null);
+    } catch (err) {
+      console.error('Failed to abort run:', err);
+    } finally {
+      setIsAborting(false);
+      setShowAbortConfirm(false);
+    }
+  };
+
   const domainLabel = activeRunMeta?.domain || 'ALL CAMPAIGNS';
   const scopeLabel = activeRunId === 'all' ? 'GLOBAL STREAM' : `#${activeRunId?.slice(0, 8)}`;
 
   return (
     <div className="w-full select-none border-b border-hairline font-mono" aria-label="Mission Control Command Bar">
+      <ConfirmModal
+        isOpen={showAbortConfirm}
+        onClose={() => setShowAbortConfirm(false)}
+        onConfirm={handleConfirmAbort}
+        title="ABORT RUNNING CAMPAIGN"
+        subtitle="FORENSIC CONTROL · OPERATOR OVERRIDE"
+        description={`Are you sure you want to abort campaign #${activeRunId?.slice(0, 8)}? All in-flight attack mutations and scoring workers will terminate immediately.`}
+        confirmLabel="ABORT CAMPAIGN"
+        cancelLabel="CONTINUE RUN"
+        variant="danger"
+        isPending={isAborting}
+      />
 
       {/* ── Strip 1: Title + Scope + Stream Health + Search + Density ── */}
       <div className="flex items-center gap-0 hairline-bottom h-12">
 
         {/* Title block */}
-        <div className="flex items-center gap-3 px-0 pr-5 shrink-0 hairline-right h-full">
+        <div className="flex items-center px-0 pr-5 shrink-0 hairline-right h-full">
           <h1 className="text-sm font-bold tracking-[0.12em] text-slate uppercase font-sans">
             MISSION CONTROL
           </h1>
-          <div className="flex items-center gap-1.5">
-            <span className={`w-1.5 h-1.5 rounded-full ${streamHealth === 'connected' ? 'bg-olive animate-pulse-dot' : streamHealth === 'paused' ? 'bg-camel' : streamHealth === 'connecting' ? 'bg-powder' : 'bg-steel/40'}`} />
-            <span className="text-[9px] text-steel uppercase tracking-wider">
-              {streamHealth === 'connected' ? 'LIVE' : streamHealth === 'paused' ? 'PAUSED' : streamHealth === 'connecting' ? 'CONNECTING' : 'IDLE'}
-            </span>
-          </div>
         </div>
 
         {/* Scope Dropdown */}
@@ -362,12 +502,44 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           </div>
         </div>
 
-        {/* Right edge controls — Grouped by full-height vertical lines, options within by smaller lines */}
+        {/* Right edge controls — Grouped by full-height vertical lines */}
         <div className="flex items-stretch h-full shrink-0 hairline-left font-mono text-[10px]">
+          {/* Active Run Controls (Abort / Re-run) */}
+          {activeRunId && activeRunId !== 'all' && (
+            <div className="flex items-center px-3 h-full border-r border-hairline">
+              {isSelectedRunRunning ? (
+                <button
+                  onClick={() => setShowAbortConfirm(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-maroon-muted text-maroon border border-maroon/40 font-bold uppercase hover:bg-maroon hover:text-parchment transition-colors cursor-pointer"
+                  title="Abort running campaign"
+                >
+                  <span className="w-1.5 h-1.5 bg-maroon animate-ping rounded-full" />
+                  <span>ABORT RUN</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    openLauncher({
+                      endpoint_id: activeRunMeta?.endpoint_id,
+                      domain: activeRunMeta?.domain,
+                      attacker_model: activeRunMeta?.attacker_model,
+                      judge_model: activeRunMeta?.judge_model,
+                    });
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-linen text-slate border border-hairline font-bold uppercase hover:bg-slate hover:text-parchment transition-colors cursor-pointer"
+                  title="Re-run this campaign with same settings"
+                >
+                  <RotateCcw size={11} />
+                  <span>RE-RUN</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Launch Group */}
           <div className="flex items-center px-4 h-full border-r border-hairline">
             <button
-              onClick={openLauncher}
+              onClick={() => openLauncher()}
               className="flex items-center gap-1.5 transition-colors cursor-pointer uppercase tracking-wider text-slate font-bold hover:text-maroon"
               title="Launch new campaign"
             >
@@ -376,37 +548,15 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             </button>
           </div>
 
-          {/* Intel badge (compact viewports — full rail is xl-only) */}
+          {/* Intel badge (compact viewports — full rail is lg+) */}
           {intelligenceFeed.length > 0 && (
-            <div className="flex items-center px-4 h-full border-r border-hairline xl:hidden">
+            <div className="flex items-center px-4 h-full border-r border-hairline lg:hidden">
               <span className="flex items-center gap-1.5 text-camel font-bold" title={`${intelligenceFeed.length} intel alerts`}>
                 <AlertTriangle size={12} />
                 <span className="tabular-nums">{intelligenceFeed.length}</span>
               </span>
             </div>
           )}
-
-          {/* Density Group */}
-          <div className="flex items-center gap-2 px-4 h-full border-r border-hairline">
-            {(['comfortable', 'compact', 'research'] as const).map((d, i) => {
-              const isActive = density === d;
-              const label = d === 'comfortable' ? 'COMF' : d === 'compact' ? 'COMP' : 'RSRCH';
-              return (
-                <React.Fragment key={d}>
-                  {i > 0 && <span className="h-3 w-px bg-hairline" />}
-                  <button
-                    onClick={() => setDensity(d)}
-                    className={`transition-colors cursor-pointer uppercase tracking-wider ${
-                      isActive ? 'text-slate font-bold' : 'text-taupe hover:text-slate'
-                    }`}
-                    title={`${d} density`}
-                  >
-                    {label}
-                  </button>
-                </React.Fragment>
-              );
-            })}
-          </div>
 
           {/* View Mode Group */}
           <div className="flex items-center gap-2 px-4 h-full">
@@ -527,7 +677,10 @@ export const CommandBar: React.FC<CommandBarProps> = ({
       </div>
     </div>
   );
-};
+});
+
+CommandBar.displayName = 'CommandBar';
 
 // Re-export InstrumentCluster for use in Overview
 export { InstrumentCluster };
+

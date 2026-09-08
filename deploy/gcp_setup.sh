@@ -35,5 +35,5 @@ gcloud run deploy valerie-worker \
   --command="uvicorn" \
   --args="valerie.worker.executor:app,--host,0.0.0.0,--port,8080"
 
-echo "✅ Deployed. Run Alembic migrations:"
-echo "   PYTHONPATH=src python -m alembic upgrade head"
+echo "✅ Deployed successfully."
+

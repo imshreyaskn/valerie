@@ -38,15 +38,27 @@ def compute_severity(verdict: dict[str, Any]) -> str:
     if score >= 0.4: return "medium"
     return "low"
 
-def extract_evidence(verdict: dict[str, Any]) -> list[Evidence]:
+def extract_evidence(verdict: dict[str, Any], payload: dict[str, Any] | None = None) -> list[Evidence]:
     evidence = []
+    p = payload or {}
+    adv_prompt = p.get("adversarial_prompt", "")
+    target_resp = p.get("target_response", "")
+    orig_prompt = p.get("original_prompt", "")
+
+    if adv_prompt:
+        evidence.append(Evidence(type="adversarial_prompt", description=adv_prompt, content=adv_prompt, tokens=adv_prompt))
+    if target_resp:
+        evidence.append(Evidence(type="target_response", description=target_resp, content=target_resp))
+    if orig_prompt:
+        evidence.append(Evidence(type="seed_prompt", description=orig_prompt, content=orig_prompt))
+
     if verdict.get("pii_leakage"):
         for ex in verdict.get("pii_examples", []):
-            evidence.append(Evidence(type="pii_leakage", description=str(ex)))
+            evidence.append(Evidence(type="pii_leakage", description=str(ex), content=str(ex)))
     if str(verdict.get("bias", "none")).lower() != "none":
-        evidence.append(Evidence(type="bias", description=str(verdict.get("bias"))))
+        evidence.append(Evidence(type="bias", description=str(verdict.get("bias")), content=str(verdict.get("bias"))))
     if verdict.get("toxicity"):
-        evidence.append(Evidence(type="toxicity", description=str(verdict.get("toxicity_severity"))))
+        evidence.append(Evidence(type="toxicity", description=str(verdict.get("toxicity_severity")), content=str(verdict.get("toxicity_severity"))))
     return evidence
 
 async def process_judge_completed(event: Event):
@@ -59,6 +71,12 @@ async def process_judge_completed(event: Event):
     task_id_str = str(task_id) if task_id is not None else ""
     technique = payload.get("technique_id", "unknown")
     endpoint_id = payload.get("endpoint_id", "unknown")
+    domain = payload.get("domain", "general")
+    harm_type = payload.get("harm_type", "general")
+    adv_prompt = payload.get("adversarial_prompt", "")
+    target_resp = payload.get("target_response", "")
+    orig_prompt = payload.get("original_prompt", "")
+    risk_score = float(verdict.get("overall_risk_score", 0.0))
     
     finding = Finding(
         prompt_id=f"{task_id_str}_{iteration}",
@@ -66,19 +84,25 @@ async def process_judge_completed(event: Event):
         technique_id=technique,
         run_id=str(event.correlation_id),
         task_id=task_id_str,
+        domain=domain,
+        harm_type=harm_type,
+        score=risk_score,
+        adversarial_prompt=adv_prompt,
+        target_response=target_resp,
+        original_prompt=orig_prompt,
         severity=compute_severity(verdict),
         verdict=verdict,
-        evidence=extract_evidence(verdict),
+        evidence=extract_evidence(verdict, payload),
         is_breakthrough=is_breakthrough
     )
     
-    await db.findings.insert_one(finding.model_dump(mode="json"))
+    await db.findings.insert_one(finding.model_dump())
     
     await publisher.publish(Event(
         type="finding.created",
         source="knowledge.consumer",
         correlation_id=event.correlation_id,
-        payload={"finding_id": finding.id, "severity": finding.severity}
+        payload={"finding_id": finding.id, "severity": finding.severity, "score": finding.score, "verdict": verdict}
     ))
 
 async def process_prompt_generated(event: Event):
@@ -106,7 +130,7 @@ async def process_prompt_generated(event: Event):
         task_id=task_id_str
     )
     
-    await db.prompts.insert_one(prompt_entity.model_dump(mode="json"))
+    await db.prompts.insert_one(prompt_entity.model_dump())
 
 async def knowledge_consumer_loop():
     logger.info("Starting Knowledge Domain Consumer Loop")

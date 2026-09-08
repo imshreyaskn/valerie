@@ -12,7 +12,7 @@ export default function Footer() {
       </div>
       <div>
         updated on<br/>
-        06/05/2026
+        09/08/2026
       </div>
       <div className="font-sans text-[2.5rem] md:text-[3rem] font-bold text-slate leading-[0.8] tracking-[-0.05em] text-left md:text-right select-none">
         v.0.1.2

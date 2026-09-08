@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../utils/api';
-import { PageHeader, ActionButton, StatusBadge } from '../components/ui';
+import { PageHeader, ActionButton, StatusBadge, ConfirmModal } from '../components/ui';
 import { TelemetryRow } from '../components/ui/TelemetryRow';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useCachedQuery } from '../utils/queryCache';
@@ -62,15 +62,20 @@ export default function Settings() {
   };
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  const handleDelete = async () => {
-    if (!confirm('Are you sure? This will permanently delete your operator account, stored API keys, and all historical pipeline data.')) return;
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
     setDeleteError(null);
     try {
       await api.deleteMe();
       await logout();
     } catch (err) {
       setDeleteError(`Account deletion failed: ${err instanceof Error ? err.message : String(err)}`);
+      setShowDeleteModal(false);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -219,18 +224,32 @@ export default function Settings() {
         <div className="p-6 md:p-8 bg-cream/30 space-y-4">
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-maroon pb-2 hairline-bottom">
             <AlertTriangle size={14} />
-            <span>DANGER ZONE // PERMANENT ACCOUNT DELETION</span>
+            <span>DANGER ZONE · PERMANENT ACCOUNT DELETION</span>
           </div>
           <p className="text-xs text-steel font-sans leading-relaxed">
             Irreversibly delete your operator identity, active API tokens, registered endpoint credentials, and historical adversarial evaluation ledgers. This action cannot be undone.
           </p>
           <div className="pt-2">
-            <ActionButton variant="danger" onClick={handleDelete}>
+            <ActionButton variant="danger" onClick={() => setShowDeleteModal(true)}>
               DELETE OPERATOR ACCOUNT
             </ActionButton>
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal for Account Deletion */}
+      <ConfirmModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleConfirmDelete}
+        title="DELETE OPERATOR ACCOUNT"
+        subtitle="IDENTITY CONTROL · IRREVERSIBLE ACTION"
+        description="Are you sure you want to permanently delete your operator account? This will irreversibly erase your access credentials, API keys, and all historical pipeline data."
+        confirmLabel="DELETE ACCOUNT"
+        cancelLabel="CANCEL"
+        variant="danger"
+        isPending={isDeleting}
+      />
     </section>
   );
 }

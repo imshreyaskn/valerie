@@ -38,6 +38,11 @@ class PipelineState(TypedDict):
     domain: str
     harm_types: list[str]
     selected_techniques: list[str]
+    target_model: NotRequired[str | None]
+    target_api_key: NotRequired[str | None]
+    judge_endpoint_id: NotRequired[str | None]
+    judge_endpoint_doc: NotRequired[dict[str, Any] | None]
+    judge_api_base: NotRequired[str | None]
     judge_model: str
     judge_api_key: str | None
     attacker_model: str

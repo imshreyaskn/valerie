@@ -19,7 +19,8 @@ class CreateKeyRequest(BaseModel):
 
 @router.get("/")
 async def list_keys(user=Depends(require_api_key)):
-    cursor = db.api_keys.find({"user_id": user["id"], "is_active": True}).sort("created_at", -1)
+    query = {"is_active": True} if user["id"] == "admin_master" else {"user_id": user["id"], "is_active": True}
+    cursor = db.api_keys.find(query).sort("created_at", -1)
     keys = await cursor.to_list(length=100)
     for k in keys:
         k.pop("_id", None)
@@ -55,8 +56,9 @@ async def create_key(payload: CreateKeyRequest, request: Request, user=Depends(r
 
 @router.delete("/{key_id}")
 async def revoke_key(key_id: str, user=Depends(require_api_key)):
+    query = {"id": key_id} if user["id"] == "admin_master" else {"id": key_id, "user_id": user["id"]}
     result = await db.api_keys.update_one(
-        {"id": key_id, "user_id": user["id"]},
+        query,
         {"$set": {"is_active": False}}
     )
     if result.modified_count == 0:

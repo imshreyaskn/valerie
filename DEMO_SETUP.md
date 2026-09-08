@@ -25,22 +25,6 @@ docker-compose up --build
 - 🗄️ **MongoDB**: localhost:27017
 - 💾 **Redis**: localhost:6379
 
-### Option 2: CLI-Only Demo (No Backend Required)
-
-```bash
-# Install CLI
-cd cli
-pip install -e .
-
-# Initialize with demo backend URL
-valerie init
-# Enter: https://valerie-api-demo.herokuapp.com (placeholder)
-# Enter API Key: demo_key
-
-# Run a demo campaign
-valerie run --domain bfsi --target-model mistral/mistral-small-latest --target-key demo_key --concurrency 1
-```
-
 ---
 
 ## 🎨 Visual Dashboard Features

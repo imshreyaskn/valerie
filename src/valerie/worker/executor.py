@@ -52,7 +52,9 @@ async def execute_run(
         return {"status": "success", "tasks_processed": len(results)}
     except Exception as e:
         logger.error(f"Pipeline failed for {run_id}: {e}", exc_info=True)
+        from datetime import datetime, timezone
         from valerie.db.engine import db
+        from valerie.core.events import Event, publisher
         
         # Sanitize error message to prevent leaking internal stack trace or paths
         sanitized_error = f"Pipeline execution failed: {type(e).__name__}"
@@ -61,8 +63,22 @@ async def execute_run(
             
         await db.pipeline_runs.update_one(
             {"id": run_id},
-            {"$set": {"status": "failed", "error_message": sanitized_error}}
+            {"$set": {
+                "status": "failed",
+                "error_message": sanitized_error,
+                "completed_at": datetime.now(timezone.utc),
+            }}
         )
+
+        try:
+            await publisher.publish(Event(
+                type="run.failed",
+                source="worker.executor",
+                correlation_id=run_id,
+                payload={"run_id": run_id, "error": sanitized_error}
+            ))
+        except Exception as pub_err:
+            logger.warning(f"Failed to publish run.failed event: {pub_err}")
                 
         raise HTTPException(status_code=500, detail=sanitized_error)
 

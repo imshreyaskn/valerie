@@ -53,8 +53,8 @@ class AWSConfig(BaseSettings):
     
     # Model Configuration
     attacker_model_id: str = Field(
-        default="anthropic.claude-3-5-sonnet-20241022-v2:0",
-        description="Bedrock model ID for Attacker agent"
+        default="mistral/mistral-small-latest",
+        description="Locked model ID for Attacker agent (Mistral Small)"
     )
     
     judge_model_id: str = Field(

@@ -30,8 +30,8 @@ export default function Specifications() {
 
       <div className="grid grid-cols-1 md:grid-cols-[80px_200px_1fr_120px] items-center p-0 max-md:border-b max-md:[&>div]:border-b max-md:[&>div:last-child]:border-b-0">
         <div className="p-3 md:p-6 text-sm font-mono text-steel md:hairline-right">2.04</div>
-        <div className="p-3 md:p-6 text-sm font-semibold uppercase tracking-[0.02em] md:hairline-right">ACTIONABLE DATA</div>
-        <div className="p-3 md:p-6 text-[0.8rem] text-steel md:hairline-right">Exports complete structural breakdowns via CLI tables and JSON arrays for immediate integration.</div>
+        <div className="p-3 md:p-6 text-sm font-semibold uppercase tracking-[0.02em] md:hairline-right">ACTIONABLE INTELLIGENCE</div>
+        <div className="p-3 md:p-6 text-[0.8rem] text-steel md:hairline-right">Real-time Mission Control streaming, interactive attack graph lineage, and tamper-evident SHA-256 evidence dossiers.</div>
         <div className="p-4 md:py-6 md:px-4 flex justify-start md:justify-center text-slate max-md:w-full"><FileJson size={24} strokeWidth={1} /></div>
       </div>
     </section>

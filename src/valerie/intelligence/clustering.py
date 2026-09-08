@@ -59,26 +59,38 @@ async def run_prompt_clustering():
         if not findings:
             continue # No breakthroughs in this cluster, not a weakness
             
-        weakness_name = f"Empirical Cluster {label}"
-        
+        techniques = list(set([f.get("technique_id") for f in findings if f.get("technique_id")]))
+        domains = list(set([f.get("domain") for f in findings if f.get("domain")]))
+        primary_tech = techniques[0].replace("_", " ").title() if techniques else "Adversarial"
+        primary_domain = domains[0].upper() if domains else "CROSS-DOMAIN"
+
+        weakness_name = f"{primary_tech} Exploit Topology ({primary_domain})"
+        description = f"Empirical semantic cluster of {len(findings)} confirmed breakthroughs utilizing {primary_tech.lower()} in {primary_domain} evaluation sweeps."
+        density = round(len(findings) / max(1, len(p_ids)), 2)
+
         # Upsert Weakness entity
         existing = await db.weaknesses.find_one({"name": weakness_name})
         if existing:
             await db.weaknesses.update_one(
                 {"_id": existing["_id"]},
                 {"$set": {
+                    "description": description,
                     "finding_ids": list(set(existing.get("finding_ids", []) + finding_ids)),
-                    "affected_endpoint_ids": list(set(existing.get("affected_endpoint_ids", []) + endpoint_ids))
+                    "affected_endpoint_ids": list(set(existing.get("affected_endpoint_ids", []) + endpoint_ids)),
+                    "cluster_density": density,
+                    "trend": "emerging" if len(findings) > 5 else "stable",
                 }}
             )
             weakness_id = existing["id"]
         else:
             new_weakness = Weakness(
                 name=weakness_name,
-                description="Automatically identified semantic cluster of successful adversarial prompts.",
+                description=description,
                 category="AI_DISCOVERED",
                 finding_ids=finding_ids,
-                affected_endpoint_ids=endpoint_ids
+                affected_endpoint_ids=endpoint_ids,
+                cluster_density=density,
+                trend="emerging" if len(findings) > 5 else "stable"
             )
             await db.weaknesses.insert_one(new_weakness.model_dump(mode="json"))
             weakness_id = new_weakness.id
@@ -87,5 +99,5 @@ async def run_prompt_clustering():
                 type="weakness.discovered",
                 source="intelligence.clustering",
                 correlation_id=str(uuid.uuid4()),
-                payload={"weakness_id": weakness_id, "cluster_size": len(p_ids)}
+                payload={"weakness_id": weakness_id, "cluster_size": len(p_ids), "density": density}
             ))

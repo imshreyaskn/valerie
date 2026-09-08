@@ -40,6 +40,16 @@ export default function App() {
         <Route path="/"      element={<Landing />} />
         <Route path="/login" element={<Login />} />
 
+        {/* Top-level direct route aliases */}
+        <Route path="/campaigns"     element={<Navigate to="/dashboard/campaigns" replace />} />
+        <Route path="/evaluations"   element={<Navigate to="/dashboard/campaigns" replace />} />
+        <Route path="/investigation" element={<Navigate to="/dashboard/investigation" replace />} />
+        <Route path="/findings"      element={<Navigate to="/dashboard/findings" replace />} />
+        <Route path="/weaknesses"    element={<Navigate to="/dashboard/weaknesses" replace />} />
+        <Route path="/endpoints"     element={<Navigate to="/dashboard/endpoints" replace />} />
+        <Route path="/keys"          element={<Navigate to="/dashboard/keys" replace />} />
+        <Route path="/settings"      element={<Navigate to="/dashboard/settings" replace />} />
+
         {/* Protected workstation routes */}
         <Route path="/dashboard" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           {/* Primary nav — spec-mandated names */}

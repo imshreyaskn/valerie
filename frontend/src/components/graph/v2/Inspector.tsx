@@ -1,382 +1,143 @@
 /**
  * v2/Inspector.tsx
- * Xcode-style variable inspector panel (right side).
- * Collapsible sections with localStorage-persisted expansion state.
- * Slide-in animation via framer-motion. Resize handle on left edge.
- *
- * Store reads: graphStore.selectedTaskId, graphStore.selectedMutationIter,
- *              graphStore.selectedNodeId, graphStore.inspectorOpen,
- *              graphStore.inspectorWidth, graphStore.sectionExpansion,
- *              pipelineStore.liveTasks, pipelineStore.activeRunMeta, pipelineStore.runStats
- * Store writes: graphStore.closeInspector, graphStore.toggleSection, graphStore.setInspectorWidth
+ * Precision Forensic Inspector Panel for Campaign Graph.
+ * Slide-in drawer with resizable border, full mutation history, vector fingerprints,
+ * judge reasoning, and deep prompt-diff lineage navigation.
  */
 import { memo, useCallback, useRef } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { X, ChevronDown, ChevronRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  X,
+  ExternalLink,
+  Terminal,
+  GitCommit,
+} from 'lucide-react';
 import { useGraphStore } from './store/graphStore';
 import { usePipelineStore } from '../../../stores/pipelineStore';
+import { useWorkspaceStore } from '../../../stores/workspaceStore';
+import { CodeBlock, VectorScoresChart, JudgeReasoning } from '../../shared/evidence';
 import type { LiveTask } from '../../../types/domain';
-import { CodeBlock, VectorScoresChart } from '../../shared/evidence';
 
-// ── Section animation ─────────────────────────────────────────────────────────
-const sectionExpand = {
-  collapsed: { height: 0, opacity: 0, overflow: 'hidden', transition: { duration: 0.2 } },
-  expanded: { height: 'auto', opacity: 1, overflow: 'hidden', transition: { duration: 0.25 } },
-};
-
-// ── Section component ─────────────────────────────────────────────────────────
-function Section({
-  sectionKey, title, defaultOpen = false, children,
-}: {
-  sectionKey: string; title: string; defaultOpen?: boolean; children: React.ReactNode;
-}) {
-  const sectionExpansion = useGraphStore(s => s.sectionExpansion);
-  const toggleSection = useGraphStore(s => s.toggleSection);
-  const isOpen = sectionKey in sectionExpansion ? sectionExpansion[sectionKey] : defaultOpen;
-
-  return (
-    <div className="border-b border-hairline">
-      <button
-        onClick={() => toggleSection(sectionKey)}
-        className="w-full flex items-center gap-2 px-4 py-2 hover:bg-parchment transition-colors text-left"
-        aria-expanded={isOpen}
-      >
-        {isOpen
-          ? <ChevronDown size={10} className="text-taupe flex-shrink-0" />
-          : <ChevronRight size={10} className="text-taupe flex-shrink-0" />
-        }
-        <span className="font-mono text-[10px] font-bold tracking-widest uppercase text-taupe">
-          {title}
-        </span>
-      </button>
-      <motion.div
-        variants={sectionExpand}
-        initial={isOpen ? 'expanded' : 'collapsed'}
-        animate={isOpen ? 'expanded' : 'collapsed'}
-      >
-        <div className="px-4 pb-3">
-          {children}
-        </div>
-      </motion.div>
-    </div>
-  );
+interface Props {
+  className?: string;
 }
 
-// ── Task Inspector sections ───────────────────────────────────────────────────
-function TaskInspector({ task, iter }: { task: LiveTask; iter?: number | null }) {
-  const iterRecord = iter !== null && iter !== undefined
-    ? task.iterations_history?.[iter - 1]
-    : undefined;
+export const Inspector = memo(function Inspector({ className = '' }: Props) {
+  const inspectorOpen = useGraphStore((s) => s.inspectorOpen);
+  const inspectorWidth = useGraphStore((s) => s.inspectorWidth);
+  const closeInspector = useGraphStore((s) => s.closeInspector);
+  const setInspectorWidth = useGraphStore((s) => s.setInspectorWidth);
 
-  const prompt = iterRecord?.adversarial_prompt ?? task.adversarial_prompt;
-  const response = iterRecord?.target_response ?? task.target_response;
-  const reasoning = iterRecord?.judge_reasoning ?? task.judge_reasoning;
-  const vectorScores = iterRecord?.vector_scores ?? task.vector_scores;
+  const selectedTaskId = useGraphStore((s) => s.selectedTaskId);
+  const selectedMutationIter = useGraphStore((s) => s.selectedMutationIter);
+  const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
 
-  return (
-    <>
-      <Section sectionKey="task.status" title="Status" defaultOpen>
-        <div className="space-y-1">
-          <div className={`inline-block font-mono text-[10px] font-bold tracking-wider px-2 py-0.5 ${
-            task.status === 'breakthrough' ? 'bg-maroon-muted text-maroon' :
-            task.status === 'defended' || task.status === 'completed' ? 'bg-olive-muted text-olive' :
-            'bg-linen text-steel'
-          }`}>
-            {task.status.toUpperCase()}
-          </div>
-          {task.is_breakthrough && (
-            <div className="font-mono text-[9px] text-maroon tracking-wider mt-1">◆ BREAKTHROUGH</div>
-          )}
-          {iter !== null && iter !== undefined && (
-            <div className="font-mono text-[9px] text-taupe mt-1">
-              ITERATION {iter} OF {task.iterations}
-            </div>
-          )}
-        </div>
-      </Section>
+  const liveTasks = usePipelineStore((s) => s.liveTasks);
+  const activeRunMeta = usePipelineStore((s) => s.activeRunMeta);
+  const activeRunId = usePipelineStore((s) => s.activeRunId);
+  const runStats = usePipelineStore((s) => s.runStats);
 
-      <Section sectionKey="task.params" title="Parameters">
-        <dl className="space-y-1.5">
-          {([
-            ['Technique', task.technique.replace(/_/g, ' ')],
-            ['Harm Type', task.harm_type.replace(/_/g, ' ')],
-            ['Max Iter', String(task.max_iterations ?? '—')],
-            ['Risk Score', task.risk_score ? task.risk_score.toFixed(3) : '—'],
-            ['Iterations', String(task.iterations)],
-            ...(task.latency_ms ? [['Latency', `${task.latency_ms}ms`]] : []),
-          ] as [string, string][]).map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-2">
-              <dt className="font-mono text-[9px] text-taupe">{k}</dt>
-              <dd className="font-mono text-[10px] text-slate font-medium text-right">{v}</dd>
-            </div>
-          ))}
-        </dl>
-      </Section>
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(inspectorWidth);
 
-      {prompt && (
-        <Section sectionKey="task.adversarial_prompt" title="Adversarial Prompt" defaultOpen>
-          <CodeBlock text={prompt} label="prompt" />
-        </Section>
-      )}
+  // Resize drag handle handlers
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      isDragging.current = true;
+      startX.current = e.clientX;
+      startWidth.current = inspectorWidth;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
 
-      {response && (
-        <Section sectionKey="task.target_response" title="Target Response">
-          <CodeBlock text={response} label="response" />
-        </Section>
-      )}
+      const handleMouseMove = (ev: MouseEvent) => {
+        if (!isDragging.current) return;
+        const delta = startX.current - ev.clientX;
+        setInspectorWidth(startWidth.current + delta);
+      };
 
-      {vectorScores && Object.keys(vectorScores).length > 0 && (
-        <Section sectionKey="task.vector_scores" title="Vector Scores" defaultOpen>
-          <VectorScoresChart scores={vectorScores} />
-        </Section>
-      )}
+      const handleMouseUp = () => {
+        isDragging.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
 
-      {reasoning && (
-        <Section sectionKey="task.judge_reasoning" title="Judge Reasoning">
-          <blockquote className="font-sans text-xs text-slate italic leading-relaxed border-l-2 border-camel pl-3">
-            {reasoning}
-          </blockquote>
-        </Section>
-      )}
-
-      <Section sectionKey="task.timing" title="Timing">
-        <dl className="space-y-1">
-          {([
-            ['Created', task.created_at ? new Date(task.created_at).toLocaleTimeString() : '—'],
-            ['Updated', new Date(task.last_updated).toLocaleTimeString()],
-            ...(task.latency_ms ? [['Latency', `${task.latency_ms}ms`]] : []),
-          ] as [string, string][]).map(([k, v]) => (
-            <div key={k} className="flex justify-between">
-              <dt className="font-mono text-[9px] text-taupe">{k}</dt>
-              <dd className="font-mono text-[9px] text-slate">{v}</dd>
-            </div>
-          ))}
-        </dl>
-      </Section>
-
-      {task.lineage_chain && task.lineage_chain.length > 0 && (
-        <Section sectionKey="task.lineage" title="Lineage">
-          <div className="flex items-center gap-1 flex-wrap">
-            {task.lineage_chain.map((node, i) => (
-              <span key={i} className="font-mono text-[9px] text-steel">
-                {node.label}{i < task.lineage_chain!.length - 1 ? ' → ' : ''}
-              </span>
-            ))}
-          </div>
-        </Section>
-      )}
-    </>
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    },
+    [inspectorWidth, setInspectorWidth]
   );
-}
-
-// ── Root inspector ────────────────────────────────────────────────────────────
-function RootInspector() {
-  const meta = usePipelineStore(s => s.activeRunMeta);
-  const runStats = usePipelineStore(s => s.runStats);
-
-  return (
-    <>
-      <Section sectionKey="root.config" title="Configuration" defaultOpen>
-        <dl className="space-y-1.5">
-          {([
-            ['Domain', meta?.domain?.toUpperCase() ?? '—'],
-            ['Attacker', meta?.attacker_model ?? '—'],
-            ['Judge', meta?.judge_model ?? '—'],
-            ['Target', meta?.endpoint_name ?? meta?.endpoint_id ?? '—'],
-            ['Max Iter', String(meta?.max_iterations ?? '—')],
-            ['Techniques', String(meta?.selected_techniques?.length ?? '—')],
-          ] as [string, string][]).map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-2">
-              <dt className="font-mono text-[9px] text-taupe">{k}</dt>
-              <dd className="font-mono text-[10px] text-slate font-medium text-right break-all">{v}</dd>
-            </div>
-          ))}
-        </dl>
-      </Section>
-
-      <Section sectionKey="root.summary" title="Summary Statistics" defaultOpen>
-        <div className="grid grid-cols-2 gap-2">
-          {([
-            ['TOTAL', runStats.total_tasks, 'text-slate'],
-            ['BREACHES', runStats.successful_attacks, 'text-maroon'],
-            ['DEFENDED', runStats.defended_tasks ?? 0, 'text-olive'],
-            ['AVG RISK', (runStats.avg_risk_score ?? 0).toFixed(2), 'text-camel'],
-          ] as [string, number | string, string][]).map(([label, val, cls]) => (
-            <div key={label}>
-              <div className="font-mono text-[7px] text-taupe tracking-wider">{label}</div>
-              <div className={`font-mono text-base font-bold ${cls}`}>{val}</div>
-            </div>
-          ))}
-        </div>
-      </Section>
-    </>
-  );
-}
-
-// ── Config inspector ──────────────────────────────────────────────────────────
-function ConfigInspector({ nodeId }: { nodeId: string }) {
-  const meta = usePipelineStore(s => s.activeRunMeta);
-  const key = nodeId.replace('config-', '') as 'attacker' | 'judge' | 'target';
-  const value = key === 'attacker' ? meta?.attacker_model :
-                key === 'judge' ? meta?.judge_model :
-                meta?.endpoint_name ?? meta?.endpoint_id;
-
-  return (
-    <Section sectionKey={`config.${key}`} title="Model Info" defaultOpen>
-      <dl className="space-y-1.5">
-        <div className="flex justify-between">
-          <dt className="font-mono text-[9px] text-taupe">Role</dt>
-          <dd className="font-mono text-[10px] text-slate font-bold">{key.toUpperCase()}</dd>
-        </div>
-        <div className="flex justify-between">
-          <dt className="font-mono text-[9px] text-taupe">Model</dt>
-          <dd className="font-mono text-[10px] text-slate break-all text-right">{value ?? '—'}</dd>
-        </div>
-      </dl>
-    </Section>
-  );
-}
-
-// ── Multi-select view ─────────────────────────────────────────────────────────
-function MultiSelectInspector() {
-  const multiSelectedIds = useGraphStore(s => s.multiSelectedIds);
-  const selectTask = useGraphStore(s => s.selectTask);
-
-  return (
-    <div className="px-4 pt-4">
-      <p className="font-mono text-[10px] text-taupe tracking-wider mb-3">
-        {multiSelectedIds.length} NODES SELECTED
-      </p>
-      <div className="space-y-1">
-        {multiSelectedIds.map(id => (
-          <button
-            key={id}
-            onClick={() => selectTask(id)}
-            className="w-full text-left font-mono text-[10px] text-slate hover:text-maroon transition-colors py-1 border-b border-hairline"
-          >
-            {id.slice(0, 16)}…
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Main Inspector ────────────────────────────────────────────────────────────
-export const Inspector = memo(function Inspector() {
-  const selectedTaskId = useGraphStore(s => s.selectedTaskId);
-  const selectedMutationIter = useGraphStore(s => s.selectedMutationIter);
-  const selectedNodeId = useGraphStore(s => s.selectedNodeId);
-  const multiSelectedIds = useGraphStore(s => s.multiSelectedIds);
-  const inspectorOpen = useGraphStore(s => s.inspectorOpen);
-  const inspectorWidth = useGraphStore(s => s.inspectorWidth);
-  const closeInspector = useGraphStore(s => s.closeInspector);
-  const setInspectorWidth = useGraphStore(s => s.setInspectorWidth);
-  const liveTasks = usePipelineStore(s => s.liveTasks);
-  const reducedMotion = useReducedMotion();
 
   const selectedTask = selectedTaskId ? liveTasks[selectedTaskId] : null;
-
-  // Resize handle drag
-  const dragging = useRef(false);
-  const startX = useRef(0);
-  const startW = useRef(inspectorWidth);
-
-  const onResizeStart = useCallback((e: React.MouseEvent) => {
-    dragging.current = true;
-    startX.current = e.clientX;
-    startW.current = inspectorWidth;
-
-    const onMove = (ev: MouseEvent) => {
-      if (!dragging.current) return;
-      const delta = startX.current - ev.clientX;
-      setInspectorWidth(startW.current + delta);
-    };
-    const onUp = () => {
-      dragging.current = false;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, [inspectorWidth, setInspectorWidth]);
-
-  // Determine what to show
-  const showMultiSelect = multiSelectedIds.length >= 2;
-  const nodeType = selectedTaskId ? 'task' :
-                   selectedNodeId?.startsWith('config-') ? 'config' :
-                   selectedNodeId === 'root' ? 'root' : null;
-
-  const headerLabel = selectedTaskId
-    ? (selectedMutationIter ? `ITER ${selectedMutationIter} · ` : '') + selectedTaskId.slice(0, 12)
-    : selectedNodeId === 'root' ? 'CAMPAIGN ROOT'
-    : selectedNodeId?.replace('config-', '')?.toUpperCase() ?? 'INSPECTOR';
 
   return (
     <AnimatePresence>
       {inspectorOpen && (
         <motion.aside
-          key="inspector"
-          initial={reducedMotion ? false : { x: 24, opacity: 0 }}
-          animate={reducedMotion ? {} : { x: 0, opacity: 1, transition: { duration: 0.25, ease: 'easeOut' } }}
-          exit={reducedMotion ? {} : { x: 24, opacity: 0, transition: { duration: 0.2, ease: 'easeIn' } }}
-          className="absolute top-0 right-0 h-full bg-ivory border-l border-hairline flex flex-col z-20 shadow-lg"
+          initial={{ x: '100%', opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: '100%', opacity: 0 }}
+          transition={{ duration: 0.25, ease: 'easeOut' }}
           style={{ width: inspectorWidth }}
-          role="region"
-          aria-label="Node detail inspector"
+          className={`absolute top-0 right-0 bottom-0 z-30 bg-ivory border-l border-hairline shadow-2xl flex flex-col pointer-events-auto ${className}`}
         >
           {/* Resize handle */}
           <div
-            className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-hairline/50 transition-colors"
-            onMouseDown={onResizeStart}
-            aria-hidden="true"
-          />
+            onMouseDown={handleMouseDown}
+            className="absolute top-0 bottom-0 -left-1.5 w-3 cursor-col-resize z-40 group hover:bg-slate/10 transition-colors"
+            title="Drag to resize inspector"
+          >
+            <div className="absolute top-1/2 left-1 -translate-y-1/2 w-0.5 h-8 bg-steel/30 group-hover:bg-slate transition-colors" />
+          </div>
 
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-slate text-parchment flex-shrink-0">
-            <div className="flex items-center gap-2 min-w-0">
-              {nodeType === 'task' && (
-                <span className="font-mono text-[8px] text-taupe tracking-widest">TASK</span>
-              )}
-              <span className="font-mono text-[11px] font-semibold text-parchment truncate">
-                {headerLabel}
+          {/* Inspector Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-hairline bg-parchment shrink-0">
+            <div className="flex items-center gap-2">
+              <Terminal size={13} className="text-slate" />
+              <span className="font-mono text-[10px] font-bold tracking-widest text-slate uppercase">
+                {selectedTask
+                  ? `SPECIMEN #${selectedTask.task_id.slice(0, 8)}`
+                  : selectedNodeId === 'campaignRoot'
+                  ? 'CAMPAIGN MANIFEST'
+                  : selectedNodeId
+                  ? selectedNodeId.toUpperCase().replace('-', ' · ')
+                  : 'FORENSIC DOSSIER'}
               </span>
-              {selectedTask && (
-                <span className={`font-mono text-[8px] font-bold tracking-wider px-1.5 py-0.5 ${
-                  selectedTask.status === 'breakthrough' ? 'bg-maroon text-parchment' :
-                  selectedTask.status === 'defended' || selectedTask.status === 'completed' ? 'bg-olive text-parchment' :
-                  'bg-steel/30 text-parchment'
-                }`}>
-                  {selectedTask.status.toUpperCase()}
-                </span>
-              )}
             </div>
             <button
+              type="button"
               onClick={closeInspector}
-              className="flex-shrink-0 flex items-center justify-center w-7 h-7 text-taupe hover:text-parchment transition-colors"
-              aria-label="Close inspector"
+              className="p-1 hover:bg-linen text-steel hover:text-slate transition-colors cursor-pointer"
+              aria-label="Close Inspector"
             >
               <X size={14} />
             </button>
           </div>
 
-          {/* Body — key on selectedTaskId to reset scroll when switching tasks (RFC §15.23) */}
-          <div
-            key={selectedTaskId ?? selectedNodeId ?? 'empty'}
-            className="flex-1 overflow-y-auto"
-          >
-            {showMultiSelect ? (
-              <MultiSelectInspector />
-            ) : selectedTask ? (
-              <TaskInspector task={selectedTask} iter={selectedMutationIter} />
-            ) : nodeType === 'root' ? (
-              <RootInspector />
-            ) : selectedNodeId ? (
-              <ConfigInspector nodeId={selectedNodeId} />
+          {/* Content Body */}
+          <div className="flex-1 overflow-y-auto divide-y divide-hairline">
+            {selectedTask ? (
+              <TaskInspectorDetails
+                task={selectedTask}
+                activeIter={selectedMutationIter}
+                runId={activeRunId}
+              />
+            ) : selectedNodeId === 'campaignRoot' ? (
+              <RootInspectorDetails
+                runId={activeRunId}
+                meta={activeRunMeta}
+                stats={runStats}
+              />
+            ) : selectedNodeId?.startsWith('config-') ? (
+              <ConfigInspectorDetails
+                nodeKey={selectedNodeId.replace('config-', '')}
+                meta={activeRunMeta}
+              />
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center px-6">
-                <div className="font-mono text-[10px] text-taupe tracking-widest mb-2">NO SELECTION</div>
-                <p className="font-sans text-xs text-steel">Select a node to inspect its detail</p>
+              <div className="p-8 text-center font-mono text-xs text-taupe">
+                SELECT A NODE IN THE DAG TO INSPECT FORENSIC EVIDENCE.
               </div>
             )}
           </div>
@@ -385,3 +146,332 @@ export const Inspector = memo(function Inspector() {
     </AnimatePresence>
   );
 });
+
+// ── 1. Task Specimen Details ──────────────────────────────────────────────────
+function TaskInspectorDetails({
+  task,
+  activeIter,
+  runId,
+}: {
+  task: LiveTask;
+  activeIter: number | null;
+  runId: string | null;
+}) {
+  const openPromptDiff = useWorkspaceStore((s) => s.openPromptDiff);
+  const selectMutation = useGraphStore((s) => s.selectMutation);
+
+  const totalIterations = Math.max(1, task.iterations ?? 1);
+  const displayedIter = activeIter ?? totalIterations;
+  const iterRecord =
+    activeIter !== null && task.iterations_history
+      ? task.iterations_history[activeIter - 1]
+      : undefined;
+
+  const promptText =
+    iterRecord?.adversarial_prompt ||
+    task.adversarial_prompt ||
+    task.prompt ||
+    'NO ADVERSARIAL PROMPT RECORDED.';
+  const responseText =
+    iterRecord?.target_response || task.target_response || 'NO TARGET RESPONSE RECORDED.';
+  const judgeRationale = iterRecord?.judge_reasoning || task.judge_reasoning;
+  const vectorScores = iterRecord?.vector_scores || task.vector_scores;
+  const currentRisk = iterRecord?.risk_score ?? task.risk_score ?? 0;
+
+  const handleOpenDiffModal = () => {
+    if (runId && task.task_id) {
+      openPromptDiff(runId, task.task_id);
+    }
+  };
+
+  return (
+    <div className="p-4 space-y-5">
+      {/* Status & Telemetry Header */}
+      <div className="bg-parchment p-3 border border-hairline">
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-mono text-[9px] font-bold text-taupe uppercase tracking-wider">
+            {task.harm_type || 'GENERAL SAFETY'}
+          </span>
+          <span
+            className={`font-mono text-[9px] font-bold uppercase px-2 py-0.5 ${
+              task.is_breakthrough
+                ? 'bg-maroon-muted text-maroon border border-maroon/30'
+                : task.status === 'defended' || task.status === 'completed'
+                ? 'bg-olive-muted text-olive border border-olive/30'
+                : 'bg-linen text-steel border border-hairline'
+            }`}
+          >
+            {task.status.toUpperCase()}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-hairline/60">
+          <div>
+            <div className="font-mono text-[7px] text-taupe uppercase">TECHNIQUE</div>
+            <div className="font-mono text-[10px] font-bold text-slate truncate">
+              {task.technique?.replace(/_/g, ' ') || '—'}
+            </div>
+          </div>
+          <div>
+            <div className="font-mono text-[7px] text-taupe uppercase">RISK SCORE</div>
+            <div
+              className={`font-mono text-[11px] font-bold tabular-nums ${
+                currentRisk >= 0.7
+                  ? 'text-maroon'
+                  : currentRisk >= 0.4
+                  ? 'text-camel'
+                  : 'text-olive'
+              }`}
+            >
+              {currentRisk.toFixed(2)}
+            </div>
+          </div>
+          <div>
+            <div className="font-mono text-[7px] text-taupe uppercase">ITERATIONS</div>
+            <div className="font-mono text-[11px] font-bold text-slate">
+              {task.iterations ?? 0} / {task.max_iterations ?? 3}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Iteration Selector Pill Strip */}
+      {totalIterations > 1 && (
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="font-mono text-[9px] font-bold text-taupe uppercase tracking-wider">
+              MUTATION ITERATION SNAPSHOT
+            </span>
+            <span className="font-mono text-[9px] text-steel">
+              VIEWING ITER #{displayedIter}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {Array.from({ length: totalIterations }, (_, i) => i + 1).map((iterNum) => {
+              const isSelected = displayedIter === iterNum;
+              return (
+                <button
+                  key={iterNum}
+                  type="button"
+                  onClick={() => selectMutation(task.task_id, iterNum)}
+                  className={`px-2.5 py-1 font-mono text-[9px] font-bold uppercase transition-colors cursor-pointer border ${
+                    isSelected
+                      ? 'bg-slate text-parchment border-slate'
+                      : 'bg-linen text-steel border-hairline hover:border-steel hover:text-slate'
+                  }`}
+                >
+                  ITER {iterNum}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Adversarial Prompt Specimen */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="font-mono text-[9px] font-bold text-slate uppercase tracking-wider">
+            ADVERSARIAL PROMPT SPECIMEN
+          </span>
+          <span className="font-mono text-[8px] text-taupe">ITER #{displayedIter}</span>
+        </div>
+        <CodeBlock text={promptText} label="adversarial prompt" />
+      </div>
+
+      {/* Target Model Response */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="font-mono text-[9px] font-bold text-slate uppercase tracking-wider">
+            TARGET MODEL RESPONSE
+          </span>
+          {task.latency_ms && (
+            <span className="font-mono text-[8px] text-taupe">
+              {task.latency_ms.toFixed(0)}ms
+            </span>
+          )}
+        </div>
+        <CodeBlock text={responseText} label="target response" />
+      </div>
+
+      {/* Safety Judge Verdict & Rationale */}
+      <div>
+        <span className="block font-mono text-[9px] font-bold text-slate uppercase tracking-wider mb-1.5">
+          SAFETY JUDGE RATIONALE
+        </span>
+        <div className="bg-parchment p-3 border border-hairline">
+          <JudgeReasoning reasoning={judgeRationale} />
+        </div>
+      </div>
+
+      {/* Multi-Objective Vector Fingerprint */}
+      <div>
+        <span className="block font-mono text-[9px] font-bold text-slate uppercase tracking-wider mb-1.5">
+          MULTI-OBJECTIVE VECTOR SCORES
+        </span>
+        <div className="bg-parchment p-3 border border-hairline">
+          <VectorScoresChart scores={vectorScores} />
+        </div>
+      </div>
+
+      {/* Lineage Trace & Prompt Diff Navigation */}
+      <div className="pt-2">
+        <button
+          type="button"
+          onClick={handleOpenDiffModal}
+          className="w-full flex items-center justify-center gap-2 py-2.5 bg-slate text-parchment font-mono text-[10px] font-bold uppercase tracking-wider hover:bg-slate/90 transition-colors cursor-pointer shadow-xs"
+        >
+          <GitCommit size={13} className="text-powder" />
+          <span>VIEW COMPLETE PROMPT EVOLUTION DIFF</span>
+          <ExternalLink size={11} className="text-taupe" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── 2. Campaign Root Details ──────────────────────────────────────────────────
+function RootInspectorDetails({
+  runId,
+  meta,
+  stats,
+}: {
+  runId: string | null;
+  meta: any;
+  stats: any;
+}) {
+  return (
+    <div className="p-4 space-y-4 font-sans">
+      <div className="bg-parchment p-3 border border-hairline space-y-2">
+        <span className="font-mono text-[9px] font-bold text-taupe uppercase tracking-wider">
+          CAMPAIGN IDENTIFIERS
+        </span>
+        <div className="font-mono text-xs text-slate break-all">
+          RUN ID: {runId || '—'}
+        </div>
+        <div className="font-mono text-xs text-slate">
+          DOMAIN: {meta?.domain?.toUpperCase() || 'GENERAL'}
+        </div>
+        <div className="font-mono text-xs text-slate">
+          STARTED: {meta?.started_at ? new Date(meta.started_at).toLocaleString() : '—'}
+        </div>
+      </div>
+
+      <div className="bg-parchment p-3 border border-hairline space-y-2">
+        <span className="font-mono text-[9px] font-bold text-taupe uppercase tracking-wider">
+          AGGREGATED TELEMETRY
+        </span>
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          <div>
+            <div className="font-mono text-[8px] text-taupe">TOTAL TASKS</div>
+            <div className="font-mono text-sm font-bold text-slate">{stats.total_tasks}</div>
+          </div>
+          <div>
+            <div className="font-mono text-[8px] text-taupe">SUCCESSFUL BREACHES</div>
+            <div className="font-mono text-sm font-bold text-maroon">{stats.successful_attacks}</div>
+          </div>
+          <div>
+            <div className="font-mono text-[8px] text-taupe">DEFENDED SPECIMENS</div>
+            <div className="font-mono text-sm font-bold text-olive">{stats.defended_tasks ?? 0}</div>
+          </div>
+          <div>
+            <div className="font-mono text-[8px] text-taupe">MEAN RISK SCORE</div>
+            <div className="font-mono text-sm font-bold tabular-nums text-slate">
+              {(stats.avg_risk_score ?? 0).toFixed(2)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-parchment p-3 border border-hairline space-y-1.5">
+        <span className="font-mono text-[9px] font-bold text-taupe uppercase tracking-wider">
+          TECHNIQUES IN SWEEP
+        </span>
+        <div className="flex flex-wrap gap-1 pt-1">
+          {meta?.selected_techniques?.map((tech: string) => (
+            <span
+              key={tech}
+              className="font-mono text-[9px] bg-linen px-2 py-0.5 border border-hairline uppercase text-slate"
+            >
+              {tech.replace(/_/g, ' ')}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 3. Config Node Details ────────────────────────────────────────────────────
+function ConfigInspectorDetails({
+  nodeKey,
+  meta,
+}: {
+  nodeKey: string;
+  meta: any;
+}) {
+  const isAttacker = nodeKey === 'attacker';
+  const isTarget = nodeKey === 'target';
+  const isJudge = nodeKey === 'judge';
+
+  return (
+    <div className="p-4 space-y-4 font-sans">
+      <div className="bg-parchment p-3 border border-hairline space-y-2">
+        <span className="font-mono text-[9px] font-bold text-taupe uppercase tracking-wider">
+          {nodeKey.toUpperCase()} CONFIGURATION
+        </span>
+        <div className="font-mono text-sm font-bold text-slate">
+          {isAttacker
+            ? meta?.attacker_model || 'DEFAULT ATTACKER'
+            : isTarget
+            ? meta?.endpoint_name || meta?.endpoint_id || 'DEFAULT TARGET'
+            : meta?.judge_model || 'DEFAULT JUDGE'}
+        </div>
+      </div>
+
+      <div className="bg-parchment p-3 border border-hairline space-y-2">
+        <span className="font-mono text-[9px] font-bold text-taupe uppercase tracking-wider">
+          RUNTIME PARAMETERS
+        </span>
+        <dl className="space-y-1.5 font-mono text-[10px]">
+          {isAttacker && (
+            <>
+              <div className="flex justify-between">
+                <dt className="text-taupe">MAX ITERATIONS:</dt>
+                <dd className="text-slate font-bold">{meta?.max_iterations ?? 3}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-taupe">MUTATION STRATEGY:</dt>
+                <dd className="text-slate">MULTI-TECHNIQUE SEED</dd>
+              </div>
+            </>
+          )}
+          {isTarget && (
+            <>
+              <div className="flex justify-between">
+                <dt className="text-taupe">DOMAIN:</dt>
+                <dd className="text-slate font-bold">{meta?.domain?.toUpperCase() ?? 'GENERAL'}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-taupe">ENDPOINT ID:</dt>
+                <dd className="text-slate truncate max-w-[160px]">{meta?.endpoint_id ?? '—'}</dd>
+              </div>
+            </>
+          )}
+          {isJudge && (
+            <>
+              <div className="flex justify-between">
+                <dt className="text-taupe">SCORING METHOD:</dt>
+                <dd className="text-slate">HARMONIC MEAN MULTI-OBJECTIVE</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-taupe">RISK THRESHOLD:</dt>
+                <dd className="text-slate font-bold">0.70 (BREACH CUTOFF)</dd>
+              </div>
+            </>
+          )}
+        </dl>
+      </div>
+    </div>
+  );
+}

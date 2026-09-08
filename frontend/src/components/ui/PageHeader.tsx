@@ -15,7 +15,7 @@ export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
         </h1>
         {subtitle && (
           <p className="text-xs font-mono text-steel tracking-widest font-normal uppercase mt-1 truncate">
-            {subtitle.startsWith('//') ? subtitle : `// ${subtitle}`}
+            {subtitle.replace(/^\/\/\s*/, '')}
           </p>
         )}
       </div>

@@ -6,3 +6,7 @@ export { StatusBadge } from './StatusBadge';
 export { EmptyBuffer } from './EmptyBuffer';
 export { ActionButton } from './ActionButton';
 export { VTooltip } from './VTooltip';
+export { ConfirmModal } from './ConfirmModal';
+export type { ConfirmModalProps } from './ConfirmModal';
+export { AnimatedNumber } from './AnimatedNumber';
+

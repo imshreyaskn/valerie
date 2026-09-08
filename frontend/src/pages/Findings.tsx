@@ -1,15 +1,107 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { api } from '../utils/api';
 import { pinFindingAsCase, unpinCase, getInvestigationCases } from '../utils/investigationCases';
-import { Search, ChevronDown, ChevronUp, X, Filter, Pin, Check } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, X, Filter, Pin, Check, RefreshCw } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { PageHeader, StatusBadge, ActionButton } from '../components/ui';
+import { PageHeader, StatusBadge, ActionButton, AnimatedNumber } from '../components/ui';
 import { TelemetryRow } from '../components/ui/TelemetryRow';
 import { SegmentFilter } from '../components/ui/SegmentFilter';
 import { EvidenceDossier, getSeverityVariant } from '../components/shared/EvidenceDossier';
 import { useHotkeyFocus } from '../hooks/useHotkeyFocus';
-import { useCachedQuery } from '../utils/queryCache';
+import { useCachedQuery, invalidate } from '../utils/queryCache';
 import type { Finding } from '../types/domain';
+
+const INITIAL_CHUNK = 20;
+const CHUNK_INCREMENT = 20;
+
+interface FindingRowProps {
+  finding: Finding;
+  index: number;
+  isExpanded: boolean;
+  isPinned: boolean;
+  onToggleExpand: (id: string) => void;
+  onTogglePin: (id: string) => void;
+}
+
+const FindingRow = React.memo<FindingRowProps>(
+  ({ finding: f, index, isExpanded, isPinned, onToggleExpand, onTogglePin }) => {
+    const indexStr = String(index + 1).padStart(2, '0');
+    const severityVariant = getSeverityVariant(f.severity);
+
+    return (
+      <div className="bg-ivory transition-colors">
+        <div className="grid grid-cols-1 md:grid-cols-[60px_1fr_180px_120px_90px_40px] items-center p-0 group hover:bg-linen/30 transition-colors">
+          {/* Index */}
+          <div className="p-3 md:p-4 text-sm font-mono text-steel md:hairline-right select-none">
+            {indexStr}
+          </div>
+
+          {/* Technique */}
+          <div
+            onClick={() => onToggleExpand(f.id)}
+            className="p-3 md:p-4 md:hairline-right min-w-0 cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-tight text-slate truncate">
+                {f.technique_id?.replace(/_/g, ' ') || 'PROMPT INJECTION'}
+              </span>
+              {f.is_breakthrough && (
+                <StatusBadge label="BREAKTHROUGH" variant="maroon" pulse />
+              )}
+            </div>
+            <p className="text-[10px] text-taupe font-mono truncate mt-0.5">
+              ID: {f.id} · RUN: {f.run_id}
+            </p>
+          </div>
+
+          {/* Endpoint */}
+          <div className="p-3 md:p-4 md:hairline-right min-w-0 text-xs font-bold uppercase text-slate truncate">
+            {f.endpoint_id}
+          </div>
+
+          {/* Severity */}
+          <div className="p-3 md:p-4 md:hairline-right text-left md:text-center">
+            <StatusBadge label={f.severity || 'HIGH'} variant={severityVariant} />
+          </div>
+
+          {/* Pin Action */}
+          <div className="p-3 md:p-4 md:hairline-right text-left md:text-center">
+            <button
+              onClick={() => onTogglePin(f.id)}
+              className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase transition-colors cursor-pointer border ${
+                isPinned
+                  ? 'bg-slate text-parchment border-slate shadow-xs'
+                  : 'bg-linen/40 text-steel border-hairline hover:bg-linen hover:text-slate'
+              }`}
+              title={isPinned ? 'Unpin from Investigation Board' : 'Pin to Investigation Board'}
+            >
+              {isPinned ? <Check size={10} /> : <Pin size={10} />}
+              <span>{isPinned ? 'PINNED' : 'PIN'}</span>
+            </button>
+          </div>
+
+          {/* Expand Icon */}
+          <div
+            onClick={() => onToggleExpand(f.id)}
+            className="p-3 md:p-4 text-center text-steel group-hover:text-slate cursor-pointer"
+          >
+            {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </div>
+        </div>
+
+        {/* Expanded Evidence Dossier (deferred/lazy mount) */}
+        {isExpanded && <EvidenceDossier finding={f} />}
+      </div>
+    );
+  },
+  (prev, next) =>
+    prev.finding === next.finding &&
+    prev.isExpanded === next.isExpanded &&
+    prev.isPinned === next.isPinned &&
+    prev.index === next.index
+);
+
+FindingRow.displayName = 'FindingRow';
 
 export default function Findings() {
   const navigate = useNavigate();
@@ -29,6 +121,7 @@ export default function Findings() {
   const [expandedFinding, setExpandedFinding] = useState<string | null>(null);
   const [severityFilter, setSeverityFilter] = useState('ALL');
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+  const [visibleCount, setVisibleCount] = useState(INITIAL_CHUNK);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   useHotkeyFocus(searchInputRef);
@@ -39,6 +132,12 @@ export default function Findings() {
   const loadError = findingsResource.error && findings.length === 0
     ? 'Could not load findings. Check your connection and retry.'
     : null;
+
+  useEffect(() => {
+    // Invalidate and reload fresh findings from backend on mount
+    invalidate('findings');
+    findingsResource.reload();
+  }, []);
 
   useEffect(() => {
     setPinnedIds(new Set(getInvestigationCases().map((c) => c.id)));
@@ -55,11 +154,11 @@ export default function Findings() {
     };
   }, []);
 
-  const toggleExpand = (id: string) => {
-    setExpandedFinding(expandedFinding === id ? null : id);
-  };
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedFinding((prev) => (prev === id ? null : id));
+  }, []);
 
-  const handleTogglePin = (id: string) => {
+  const handleTogglePin = useCallback((id: string) => {
     setPinnedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -72,7 +171,7 @@ export default function Findings() {
       }
       return next;
     });
-  };
+  }, [findings]);
 
   const filteredFindings = useMemo(() => {
     return findings.filter((f) => {
@@ -91,13 +190,77 @@ export default function Findings() {
     });
   }, [findings, severityFilter, searchQuery, clusterIdSet]);
 
+  // Reset smooth escalation chunk count on filter change
+  useEffect(() => {
+    setVisibleCount(INITIAL_CHUNK);
+  }, [searchQuery, severityFilter, clusterIdSet]);
+
+  // Smooth Escalation: Visible slice
+  const visibleFindings = useMemo(
+    () => filteredFindings.slice(0, visibleCount),
+    [filteredFindings, visibleCount]
+  );
+
+  // Sentinel for smooth infinite escalation on scroll
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visibleCount >= filteredFindings.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + CHUNK_INCREMENT, filteredFindings.length));
+        }
+      },
+      { rootMargin: '300px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [visibleCount, filteredFindings.length]);
+
   const totalBreakthroughs = useMemo(
     () => findings.filter((f) => f.is_breakthrough).length,
     [findings]
   );
 
+  const handleExportCSV = () => {
+    if (filteredFindings.length === 0) return;
+    const headers = ['ID', 'Run ID', 'Endpoint', 'Technique', 'Severity', 'Breakthrough', 'Risk Score', 'Created At'];
+    const rows = filteredFindings.map((f) => [
+      `"${f.id}"`,
+      `"${f.run_id}"`,
+      `"${f.endpoint_id || ''}"`,
+      `"${f.technique_id || ''}"`,
+      `"${f.severity || ''}"`,
+      `"${f.is_breakthrough ? 'YES' : 'NO'}"`,
+      `"${f.score?.toFixed(2) || (f as any).verdict?.overall_risk_score || '0.00'}"`,
+      `"${f.created_at || ''}"`,
+    ]);
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `valerie-findings-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportJSON = () => {
+    if (filteredFindings.length === 0) return;
+    const blob = new Blob([JSON.stringify(filteredFindings, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `valerie-findings-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const clearClusterScope = () => {
-    // Replace history state so back/forward doesn't re-apply the scope.
     navigate('/dashboard/findings', { replace: true, state: null });
   };
 
@@ -108,24 +271,56 @@ export default function Findings() {
         title="FINDINGS EXPLORER"
         subtitle="CONFIRMED BREAKTHROUGHS, EXPLOIT EVIDENCE DOSSIERS &amp; DISPOSITION TRIAGE"
         action={
-          <ActionButton
-            variant="secondary"
-            icon={<Pin size={14} />}
-            onClick={() => navigate('/dashboard/investigation')}
-          >
-            VIEW PINNED BOARD ({pinnedIds.size})
-          </ActionButton>
+          <div className="flex items-center gap-2">
+            <ActionButton
+              variant="secondary"
+              icon={<RefreshCw size={13} className={findingsResource.loading ? 'animate-spin' : ''} />}
+              onClick={() => {
+                invalidate('findings');
+                findingsResource.reload();
+              }}
+              title="Refresh findings ledger"
+            >
+              SYNC DOSSIERS
+            </ActionButton>
+            <ActionButton
+              variant="secondary"
+              onClick={handleExportCSV}
+              title="Export filtered findings as CSV"
+            >
+              EXPORT CSV
+            </ActionButton>
+            <ActionButton
+              variant="secondary"
+              onClick={handleExportJSON}
+              title="Export filtered findings as JSON"
+            >
+              JSON
+            </ActionButton>
+            <ActionButton
+              variant="secondary"
+              icon={<Pin size={14} />}
+              onClick={() => navigate('/dashboard/investigation')}
+            >
+              VIEW PINNED BOARD ({pinnedIds.size})
+            </ActionButton>
+          </div>
         }
       />
 
-      {/* ── 2. Telemetry Row (1.04 is a configuration fact, styled static) ── */}
+      {/* ── 2. Telemetry Row (with AnimatedNumber) ── */}
       <TelemetryRow
         ariaLabel="Findings metrics"
         cells={[
           {
             index: '1.01',
             label: 'TOTAL FINDINGS',
-            value: <><span>{findings.length}</span><span className="text-steel text-sm font-normal"> DOSSIERS</span></>,
+            value: (
+              <>
+                <AnimatedNumber value={findings.length} />
+                <span className="text-steel text-sm font-normal"> DOSSIERS</span>
+              </>
+            ),
             sublabel: 'INDEXED SECURITY SPECIMENS',
           },
           {
@@ -135,7 +330,7 @@ export default function Findings() {
             value: (
               <span className={`flex items-center gap-1.5 ${totalBreakthroughs > 0 ? 'text-maroon' : 'text-slate'}`}>
                 {totalBreakthroughs > 0 && <span className="text-sm">◆</span>}
-                {totalBreakthroughs}
+                <AnimatedNumber value={totalBreakthroughs} />
               </span>
             ),
             sublabel: 'THRESHOLD-CROSSING EXPLOITS',
@@ -143,7 +338,12 @@ export default function Findings() {
           {
             index: '1.03',
             label: 'PINNED FOR INVESTIGATION',
-            value: <><span>{pinnedIds.size}</span><span className="text-steel text-sm font-normal"> PINNED</span></>,
+            value: (
+              <>
+                <AnimatedNumber value={pinnedIds.size} />
+                <span className="text-steel text-sm font-normal"> PINNED</span>
+              </>
+            ),
             sublabel: 'READY FOR FORENSIC CASE STUDY',
           },
           {
@@ -211,7 +411,7 @@ export default function Findings() {
         </div>
       )}
 
-      {/* ── 5. Findings Table ── */}
+      {/* ── 5. Findings Table with Smooth Escalation ── */}
       {loading ? (
         <div className="py-16 text-center text-xs text-steel">LOADING FINDINGS DOSSIERS</div>
       ) : loadError ? (
@@ -236,81 +436,30 @@ export default function Findings() {
             <div className="p-3 md:p-4 text-center"><span className="sr-only">Expand</span></div>
           </div>
 
-          {/* Rows */}
+          {/* Rows rendered via Smooth Escalation */}
           <div className="divide-y divide-hairline">
-            {filteredFindings.map((f, idx) => {
-              const indexStr = String(idx + 1).padStart(2, '0');
-              const severityVariant = getSeverityVariant(f.severity);
-              const isExpanded = expandedFinding === f.id;
-              const isPinned = pinnedIds.has(f.id);
-
-              return (
-                <div key={f.id || idx} className="bg-ivory">
-                  <div className="grid grid-cols-1 md:grid-cols-[60px_1fr_180px_120px_90px_40px] items-center p-0 group">
-                    {/* Index */}
-                    <div className="p-3 md:p-4 text-sm font-mono text-steel md:hairline-right select-none">
-                      {indexStr}
-                    </div>
-
-                    {/* Technique */}
-                    <div
-                      onClick={() => toggleExpand(f.id)}
-                      className="p-3 md:p-4 md:hairline-right min-w-0 cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold uppercase tracking-tight text-slate truncate">
-                          {f.technique_id?.replace(/_/g, ' ') || 'PROMPT INJECTION'}
-                        </span>
-                        {f.is_breakthrough && (
-                          <StatusBadge label="BREAKTHROUGH" variant="maroon" pulse />
-                        )}
-                      </div>
-                      <p className="text-[10px] text-taupe font-mono truncate mt-0.5">
-                        ID: {f.id} · RUN: {f.run_id}
-                      </p>
-                    </div>
-
-                    {/* Endpoint */}
-                    <div className="p-3 md:p-4 md:hairline-right min-w-0 text-xs font-bold uppercase text-slate truncate">
-                      {f.endpoint_id}
-                    </div>
-
-                    {/* Severity */}
-                    <div className="p-3 md:p-4 md:hairline-right text-left md:text-center">
-                      <StatusBadge label={f.severity || 'HIGH'} variant={severityVariant} />
-                    </div>
-
-                    {/* Pin Action */}
-                    <div className="p-3 md:p-4 md:hairline-right text-left md:text-center">
-                      <button
-                        onClick={() => handleTogglePin(f.id)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase transition-colors cursor-pointer border ${
-                          isPinned
-                            ? 'bg-slate text-parchment border-slate shadow-xs'
-                            : 'bg-linen/40 text-steel border-hairline hover:bg-linen hover:text-slate'
-                        }`}
-                        title={isPinned ? 'Unpin from Investigation Board' : 'Pin to Investigation Board'}
-                      >
-                        {isPinned ? <Check size={10} /> : <Pin size={10} />}
-                        <span>{isPinned ? 'PINNED' : 'PIN'}</span>
-                      </button>
-                    </div>
-
-                    {/* Expand Icon */}
-                    <div
-                      onClick={() => toggleExpand(f.id)}
-                      className="p-3 md:p-4 text-center text-steel group-hover:text-slate cursor-pointer"
-                    >
-                      {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                    </div>
-                  </div>
-
-                  {/* Expanded Evidence Dossier (shared component) */}
-                  {isExpanded && <EvidenceDossier finding={f} />}
-                </div>
-              );
-            })}
+            {visibleFindings.map((f, idx) => (
+              <FindingRow
+                key={f.id || idx}
+                finding={f}
+                index={idx}
+                isExpanded={expandedFinding === f.id}
+                isPinned={pinnedIds.has(f.id)}
+                onToggleExpand={toggleExpand}
+                onTogglePin={handleTogglePin}
+              />
+            ))}
           </div>
+
+          {/* Smooth Escalation Intersection Sentinel */}
+          {visibleCount < filteredFindings.length && (
+            <div
+              ref={sentinelRef}
+              className="py-4 text-center text-[10px] text-taupe font-mono uppercase tracking-wider bg-linen/20"
+            >
+              ESCALATING DOSSIERS ({visibleCount} OF {filteredFindings.length})...
+            </div>
+          )}
         </div>
       ) : (
         <div className="py-16 px-6 text-center font-mono select-none hairline-bottom bg-linen/20">
@@ -324,3 +473,4 @@ export default function Findings() {
     </section>
   );
 }
+

@@ -24,46 +24,8 @@
 
 Perfect for **AI safety teams**, **compliance auditors**, and **security researchers** evaluating LLM deployments.
 
-## 💻 CLI Documentation
-
-The `valerie` command-line tool acts as the control center for your red-teaming operations. It communicates securely with the backend API to dispatch attacks and stream results.
-
-### `valerie init`
-Initializes your local environment. Run this once after installation. It will launch an interactive wizard asking for your deployed **Backend URL** and the corresponding **API Key**. Credentials are saved securely to `~/.valerie/config.json`.
-
-### `valerie validate`
-Pings your target LLM provider to ensure your API keys are valid before launching a massive pipeline.
-```bash
-valerie validate --model mistral/mistral-small-latest --key <YOUR_MISTRAL_KEY>
-```
-
-### `valerie run`
-The primary command to launch a red-team evaluation pipeline.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `--domain`, `-d` | Yes | The regulatory domain to test. (*Options: general, bfsi, healthcare, pharmacy, legal, hr, ecommerce*) |
-| `--target-model` | Yes | The LiteLLM model identifier for the victim model. |
-| `--target-key` | Yes | API key for the target model provider. |
-| `--attacker-model` | No | Overrides the default model used to generate attacks. |
-| `--judge-model` | No | Overrides the default model used to evaluate breakthrough risks. |
-| `--concurrency`, `-c` | No | Max parallel workers. **Set to `1`** if you are using free-tier APIs to avoid rate limits. |
-| `--harm-types` | No | Specific harm type to restrict the test to (e.g., `"False Information"`). |
-| `--techniques` | No | Specific technique to restrict the test to (e.g., `"role_play"`). |
-
-**Example Command:**
-```bash
-valerie run \
-  --domain bfsi \
-  --target-model mistral/mistral-small-latest \
-  --target-key <YOUR_MISTRAL_KEY> \
-  --concurrency 1
-```
-
-### `valerie runs results <RUN_ID>`
-Fetches the final evaluation metrics from the database and renders a beautiful terminal UI matrix showing the PII leakage, Toxicity flags, and Risk Scores for every single attack payload generated during the run.
-
 ---
+
 
 ## 🚀 Quick Start
 
@@ -94,31 +56,7 @@ python demo_simulator.py
 
 ---
 
-### 👨‍💻 Option 2: CLI-Only (No Backend Required)
-
-Use the CLI with a remote backend instance:
-
-```bash
-# 1. Install the CLI
-git clone https://github.com/imshreyaskn/valerie.git
-cd valerie/cli
-pip install -e .
-
-# 2. Authenticate with backend
-valerie init
-# Enter backend URL and API key when prompted
-
-# 3. Run a red team campaign
-valerie run \
-  --domain bfsi \
-  --target-model mistral/mistral-small-latest \
-  --target-key YOUR_MISTRAL_KEY \
-  --concurrency 1
-```
-
----
-
-### 🏗️ Option 3: Full Self-Hosted Development
+### 🏗️ Option 2: Full Self-Hosted Development
 
 For contributors and enterprise deployments:
 
@@ -185,9 +123,6 @@ valerie/
 │   ├── db/                # MongoDB models and indexes
 │   ├── llm/               # Multi-provider LLM router
 │   └── worker/            # Task executor service
-│
-├── cli/                   # Typer-based CLI tool
-├── experiments/           # Legacy research scripts
 ├── resources/             # Domain prompt datasets (CSV)
 ├── docs/                  # Architecture & design documents
 │

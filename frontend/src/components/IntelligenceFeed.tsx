@@ -14,15 +14,15 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function AlertRow({
-  alert,
-  index,
-  onInspectTask,
-}: {
+const AlertRow = React.memo<{
   alert: IntelligenceAlert;
   index: number;
   onInspectTask?: (taskId: string) => void;
-}) {
+}>(({
+  alert,
+  index,
+  onInspectTask,
+}) => {
   const [expanded, setExpanded] = useState(false);
   const isCritical = alert.severity === 'critical' || alert.severity === 'high';
   const isWarning = alert.severity === 'warning' || alert.severity === 'medium';
@@ -95,14 +95,21 @@ function AlertRow({
       )}
     </div>
   );
-}
+}, (prev, next) => prev.alert === next.alert && prev.index === next.index);
 
-export const IntelligenceFeed: React.FC = () => {
+AlertRow.displayName = 'AlertRow';
+
+export const IntelligenceFeed: React.FC = React.memo(() => {
   const intelligenceFeed = usePipelineStore((s) => s.intelligenceFeed);
   const clearFeed = usePipelineStore((s) => s.clearFeed);
   const openInspector = useWorkspaceStore((s) => s.openInspector);
 
   const [feedMode, setFeedMode] = useState<'signal' | 'all'>('signal');
+
+  const handleInspectTask = React.useCallback(
+    (taskId: string) => openInspector({ type: 'task', id: taskId }),
+    [openInspector]
+  );
 
   const filteredFeed = useMemo(() => {
     if (feedMode === 'all') return intelligenceFeed;
@@ -131,8 +138,8 @@ export const IntelligenceFeed: React.FC = () => {
           </span>
         </div>
 
-        {/* Signal vs All toggle — Grouped by full-height line, options inside by small lines */}
-        <div className="flex items-center gap-2.5 px-4 h-full shrink-0 border-l border-hairline font-mono text-[10px]">
+        {/* Signal vs All toggle */}
+        <div className="flex items-center gap-2.5 px-4 h-full shrink-0 font-mono text-[10px]">
           <button
             onClick={() => setFeedMode('signal')}
             className={`transition-colors cursor-pointer uppercase font-mono tracking-wider ${
@@ -196,11 +203,13 @@ export const IntelligenceFeed: React.FC = () => {
               key={alert.id}
               alert={alert}
               index={idx}
-              onInspectTask={(taskId) => openInspector({ type: 'task', id: taskId })}
+              onInspectTask={handleInspectTask}
             />
           ))
         )}
       </div>
     </aside>
   );
-};
+});
+
+IntelligenceFeed.displayName = 'IntelligenceFeed';

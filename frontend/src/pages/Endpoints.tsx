@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { api } from '../utils/api';
 import { Trash2, X, Plus, Play, RefreshCw, Radio, Search } from 'lucide-react';
-import { PageHeader, ActionButton, StatusBadge } from '../components/ui';
+import { PageHeader, ActionButton, StatusBadge, ConfirmModal } from '../components/ui';
 import { TelemetryRow } from '../components/ui/TelemetryRow';
 import { useLauncherStore } from '../stores/launcherStore';
 import { useHotkeyFocus } from '../hooks/useHotkeyFocus';
@@ -64,6 +64,7 @@ export default function Endpoints() {
         api_key: apiKey.trim() || undefined,
       });
       invalidate('endpoints');
+      endpointsResource.reload();
       setShowCreateEndpoint(false);
       setName('');
       setProvider('openai_compat');
@@ -76,14 +77,22 @@ export default function Endpoints() {
     }
   };
 
-  const handleDeleteEndpoint = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this endpoint? Historical campaign records will remain preserved.')) return;
+  const [deleteEndpointTarget, setDeleteEndpointTarget] = useState<Endpoint | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleConfirmDelete = async () => {
+    if (!deleteEndpointTarget) return;
+    setIsDeleting(true);
     setActionError(null);
     try {
-      await api.deleteEndpoint(id);
+      await api.deleteEndpoint(deleteEndpointTarget.id);
       invalidate('endpoints');
+      endpointsResource.reload();
+      setDeleteEndpointTarget(null);
     } catch (err: unknown) {
       setActionError(`Deletion failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -112,6 +121,44 @@ export default function Endpoints() {
     } finally {
       setTestingId(null);
     }
+  };
+
+  const [isTestingAll, setIsTestingAll] = useState(false);
+
+  const handleTestAllEndpoints = async () => {
+    if (isTestingAll || endpoints.length === 0) return;
+    setIsTestingAll(true);
+    setActionError(null);
+
+    // Iteratively test every endpoint sequentially
+    for (const ep of endpoints) {
+      setTestingId(ep.id);
+      const startTime = performance.now();
+      try {
+        const res = await api.testEndpoint(ep.id);
+        const latency = Math.round(performance.now() - startTime);
+        setTestResults((prev) => ({
+          ...prev,
+          [ep.id]: {
+            status: res.status === 'ok' ? 'ok' : 'error',
+            detail: res.detail,
+            latency,
+          },
+        }));
+      } catch (err: unknown) {
+        setTestResults((prev) => ({
+          ...prev,
+          [ep.id]: {
+            status: 'error',
+            detail: err instanceof Error ? err.message : 'Connection request failed',
+          },
+        }));
+      }
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    setTestingId(null);
+    setIsTestingAll(false);
   };
 
   const filteredEndpoints = useMemo(() => {
@@ -154,7 +201,7 @@ export default function Endpoints() {
               icon={showCreateEndpoint ? <X size={14} /> : <Plus size={14} strokeWidth={2.5} />}
               onClick={() => setShowCreateEndpoint((v) => !v)}
             >
-              {showCreateEndpoint ? 'CLOSE REGISTRATION' : '+ ADD ENDPOINT'}
+              {showCreateEndpoint ? 'CLOSE REGISTRATION' : 'ADD ENDPOINT'}
             </ActionButton>
           </div>
         }
@@ -179,11 +226,26 @@ export default function Endpoints() {
           {
             index: '1.03',
             label: 'REACHABILITY (THIS SESSION)',
-            variant: testedCount > 0 && reachableCount === testedCount ? 'olive' : testedCount > 0 ? 'camel' : 'default',
-            value: testedCount > 0
-              ? <span className={reachableCount === testedCount ? 'text-olive' : 'text-camel'}>{reachableCount}/{testedCount}</span>
-              : <span className="text-slate">—</span>,
-            sublabel: testedCount > 0 ? 'LIVE TEST-PING RESULTS' : 'RUN TEST PING TO MEASURE',
+            variant: isTestingAll ? 'camel' : testedCount > 0 && reachableCount === testedCount ? 'olive' : testedCount > 0 ? 'camel' : 'default',
+            value: isTestingAll ? (
+              <span className="flex items-center gap-2 text-camel">
+                <RefreshCw size={18} className="animate-spin text-camel" />
+                <span className="text-xl md:text-2xl font-bold">TESTING ({testedCount}/{endpoints.length})</span>
+              </span>
+            ) : testedCount > 0 ? (
+              <span className={reachableCount === testedCount ? 'text-olive' : 'text-camel'}>
+                {reachableCount}/{testedCount}
+              </span>
+            ) : (
+              <span className="text-slate">—</span>
+            ),
+            sublabel: isTestingAll
+              ? 'RUNNING AUTOMATED HEALTH SWEEP...'
+              : testedCount > 0
+              ? 'CLICK TO RE-RUN ALL HEALTH PINGS'
+              : 'CLICK BOX TO AUTO-TEST ALL TARGETS',
+            onClick: endpoints.length > 0 ? handleTestAllEndpoints : undefined,
+            title: endpoints.length > 0 ? 'Click to auto-test all endpoints sequentially' : 'No endpoints registered',
           },
           {
             index: '1.04',
@@ -424,7 +486,7 @@ export default function Endpoints() {
                   {/* Actions */}
                   <div className="p-3 md:p-4 text-left md:text-right">
                     <button
-                      onClick={() => handleDeleteEndpoint(ep.id)}
+                      onClick={() => setDeleteEndpointTarget(ep)}
                       className="p-1.5 text-steel hover:text-maroon hover:bg-maroon/10 border border-transparent hover:border-maroon/30 transition-colors cursor-pointer"
                       title="Delete Endpoint"
                     >
@@ -450,6 +512,20 @@ export default function Endpoints() {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Endpoint Deletion */}
+      <ConfirmModal
+        isOpen={Boolean(deleteEndpointTarget)}
+        onClose={() => setDeleteEndpointTarget(null)}
+        onConfirm={handleConfirmDelete}
+        title="DELETE TARGET ENDPOINT"
+        subtitle="ENDPOINT REGISTRY · PERMANENT REMOVAL"
+        description={`Are you sure you want to delete endpoint "${deleteEndpointTarget?.name}"? Past campaign run data will remain preserved in history.`}
+        confirmLabel="DELETE ENDPOINT"
+        cancelLabel="CANCEL"
+        variant="danger"
+        isPending={isDeleting}
+      />
     </section>
   );
 }

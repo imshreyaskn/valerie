@@ -1,323 +1,362 @@
 /**
  * v2/hooks/useGraphLayout.ts
- * Grouped + collision-aware + tier-aware layout algorithm per RFC §9.
- * Pure computeLayout function + useMemo wrapper.
+ * Clean rank-based DAG layout engine for Campaign Graph.
+ * Computes non-overlapping positions for:
+ * 1. Root Node (Tier 0)
+ * 2. Config Nodes: Attacker, Target, Judge (Tier 1)
+ * 3. Technique Group Headers (Tier 2)
+ * 4. Attack Specimen Tasks (Tier 3)
+ * 5. Mutation Chains & Terminal Outcomes (Tier 4)
  *
- * Store reads: pipelineStore.liveTasks (or graphStore.replayTasks in replay), pipelineStore.activeRunMeta,
- *              graphStore.filters, graphStore.selectedTaskId, graphStore.semanticZoomTier, graphStore.replay.mode
+ * All nodes have draggable: true so users can interactively rearrange them.
  */
 import { useMemo, useDeferredValue } from 'react';
 import type { Node, Edge } from '@xyflow/react';
 import { usePipelineStore } from '../../../../stores/pipelineStore';
 import { useGraphStore } from '../store/graphStore';
-import { applyFilters } from './useFilteredTasks';
+import { useFilteredTasks } from './useFilteredTasks';
 import type { LiveTask } from '../../../../types/domain';
 import type { ActiveRunMeta } from '../../../../stores/pipelineStore';
-import type { GraphFilters } from '../types';
 import { NT } from '../types';
 
-// ── Layout constants (RFC §9.2) ───────────────────────────────────────────────
-const ROOT_W      = 320;
-const ROOT_Y      = 0;
-const CONFIG_Y    = 110;
-const CONFIG_SPACING = 200;
-const GROUP_Y     = 185;
-const GROUP_GUTTER = 48;
-const TECH_Y      = 240;
-const TASK_Y      = 370;
-const TASK_CHIP_W = 150;
-const TASK_GAP    = 16;
-const MUT_H       = 110;
-const OUTCOME_H   = 100;
-const TECH_W      = 200;
+// ── Layout Geometry Constants (Generous non-overlapping pitch) ───────────────
+const ROOT_W = 380;
+const ROOT_Y = 0;
 
-const TERMINAL = new Set(['breakthrough', 'defended', 'unresolved', 'failed', 'completed']);
-const LIVE_ACTIVE = new Set(['queued', 'mutating', 'transmitting', 'scoring']);
+const CONFIG_W = 220;
+const CONFIG_Y = 240;
+const CONFIG_GAP = 28;
 
-// ── Group techniques by harm_type_group or lexical cluster ───────────────────
-function groupTechniques(tasks: LiveTask[]): Record<string, string[]> {
-  const techGroups = new Map<string, string>(); // technique → group
+const TECH_W = 220;
+const TECH_Y = 390;
+
+const TASK_W = 180;
+const TASK_GAP = 28;
+const TASK_Y = 560;
+
+const MUTATION_H = 155;
+const OUTCOME_H = 145;
+const COLUMN_GAP = 56;
+
+const TERMINAL_STATUSES = new Set(['breakthrough', 'defended', 'unresolved', 'failed', 'completed']);
+const LIVE_ACTIVE_STATUSES = new Set(['queued', 'mutating', 'transmitting', 'scoring']);
+
+// ── Helper: Group tasks by technique ──────────────────────────────────────────
+function groupTasksByTechnique(tasks: LiveTask[]): Record<string, LiveTask[]> {
+  const map: Record<string, LiveTask[]> = {};
   for (const t of tasks) {
-    if (!techGroups.has(t.technique)) {
-      const group = t.harm_type_group ?? t.technique.split('_')[0];
-      techGroups.set(t.technique, group);
-    }
+    const tech = t.technique || 'general_attack';
+    if (!map[tech]) map[tech] = [];
+    map[tech].push(t);
   }
-
-  const groups: Record<string, string[]> = {};
-  for (const [tech, group] of techGroups) {
-    if (!groups[group]) groups[group] = [];
-    groups[group].push(tech);
-  }
-  // Sort groups + techniques within groups for determinism
-  const sorted: Record<string, string[]> = {};
-  Object.keys(groups).sort().forEach(g => {
-    sorted[g] = groups[g].sort();
-  });
+  // Sort techniques alphabetically for stable layout
+  const sorted: Record<string, LiveTask[]> = {};
+  Object.keys(map)
+    .sort()
+    .forEach((k) => {
+      sorted[k] = map[k];
+    });
   return sorted;
 }
 
-function computeColWidth(techTaskCount: number): number {
-  return Math.max(180, techTaskCount * (TASK_CHIP_W + TASK_GAP) + 32);
-}
-
-// ── Main layout function ──────────────────────────────────────────────────────
 export function computeLayout(
   tasks: Record<string, LiveTask>,
   meta: ActiveRunMeta | null,
-  filters: GraphFilters,
+  expandedTaskIds: string[],
+  _visibleIds: Set<string>,
+  dimmedIds: Set<string>,
   selectedTaskId: string | null,
-  tier: 0 | 1 | 2 | 3 | 4,
-  runId?: string | null,
+  runId?: string | null
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
   const taskList = Object.values(tasks);
-  const { visibleIds, dimmedIds } = applyFilters(tasks, filters);
+  const techGroups = groupTasksByTechnique(taskList);
+  const techKeys = Object.keys(techGroups);
 
-  // ── 1. Group techniques ───────────────────────────────────────────────────
-  const groups = groupTechniques(taskList);
-  const groupNames = Object.keys(groups);
-
-  // ── 2-4. Compute column/group widths and total canvas width ──────────────
+  // 1. Calculate column widths
   const colWidths: Record<string, number> = {};
-  for (const techs of Object.values(groups)) {
-    for (const tech of techs) {
-      const count = taskList.filter(t => t.technique === tech).length;
-      colWidths[tech] = computeColWidth(count);
-    }
+  for (const [tech, tList] of Object.entries(techGroups)) {
+    const taskCount = Math.max(1, tList.length);
+    colWidths[tech] = Math.max(TECH_W + 40, taskCount * (TASK_W + TASK_GAP));
   }
 
-  const groupWidths: Record<string, number> = {};
-  for (const [g, techs] of Object.entries(groups)) {
-    groupWidths[g] = techs.reduce((sum, t) => sum + colWidths[t], 0);
-  }
+  const totalColumnsWidth =
+    techKeys.reduce((acc, k) => acc + (colWidths[k] ?? TECH_W), 0) +
+    Math.max(0, techKeys.length - 1) * COLUMN_GAP;
 
-  const totalWidth = Object.values(groupWidths).reduce((s, w) => s + w, 0)
-    + Math.max(0, groupNames.length - 1) * GROUP_GUTTER;
-  const canvasW = Math.max(totalWidth, ROOT_W + 100);
-  const centerX = canvasW / 2;
+  const totalConfigsWidth = 3 * CONFIG_W + 2 * CONFIG_GAP;
+  const canvasWidth = Math.max(totalColumnsWidth, totalConfigsWidth, ROOT_W + 160, 900);
+  const centerX = canvasWidth / 2;
 
-  // ── 5. Root node ──────────────────────────────────────────────────────────
+  // 2. Root Node (Tier 0)
   nodes.push({
-    id: 'root',
+    id: 'campaignRoot',
     type: NT.ROOT,
     position: { x: centerX - ROOT_W / 2, y: ROOT_Y },
-    data: { runId: runId ?? meta?.domain, meta },
-    draggable: false,
+    data: { runId: runId ?? meta?.domain ?? 'CAMPAIGN', meta },
+    draggable: true,
     selectable: true,
   });
 
-  // ── 6. Config nodes ───────────────────────────────────────────────────────
-  const configItems = [
-    { key: 'attacker', label: 'ATTACKER', value: meta?.attacker_model || '—' },
-    { key: 'judge',    label: 'JUDGE',    value: meta?.judge_model    || '—' },
-    { key: 'target',   label: 'TARGET',   value: meta?.endpoint_name  || meta?.endpoint_id || '—' },
+  // 3. Config Nodes (Tier 1) - Attacker, Target, Judge
+  const configNodesData = [
+    {
+      key: 'attacker' as const,
+      label: 'ATTACKER',
+      sublabel: '1.01 · GENERATOR',
+      value: meta?.attacker_model || 'DEFAULT ATTACKER',
+      details: meta?.max_iterations ? `MAX ITERATIONS: ${meta.max_iterations}` : undefined,
+      isFlowNode: false,
+    },
+    {
+      key: 'target' as const,
+      label: 'TARGET SUT',
+      sublabel: '1.02 · ENDPOINT',
+      value: meta?.endpoint_name || meta?.endpoint_id || 'DEFAULT TARGET',
+      details: meta?.domain ? `DOMAIN: ${meta.domain.toUpperCase()}` : undefined,
+      isFlowNode: true,
+    },
+    {
+      key: 'judge' as const,
+      label: 'SAFETY JUDGE',
+      sublabel: '1.03 · EVALUATOR',
+      value: meta?.judge_model || 'DEFAULT JUDGE',
+      details: 'MULTI-OBJECTIVE HARMONIC SCORING',
+      isFlowNode: false,
+    },
   ];
-  configItems.forEach(({ key, label, value }, i) => {
-    const id = `config-${key}`;
-    const x = centerX + (i - 1) * CONFIG_SPACING - 90;
+
+  const configStartX = centerX - (3 * CONFIG_W + 2 * CONFIG_GAP) / 2;
+
+  configNodesData.forEach((cfg, idx) => {
+    const configId = `config-${cfg.key}`;
+    const x = configStartX + idx * (CONFIG_W + CONFIG_GAP);
+
     nodes.push({
-      id,
+      id: configId,
       type: NT.CONFIG,
       position: { x, y: CONFIG_Y },
-      data: { key, label, value },
-      draggable: false,
+      data: cfg,
+      draggable: true,
       selectable: true,
     });
+
+    // Edge from Root to Config
     edges.push({
-      id: `e-root-${id}`,
-      source: 'root',
-      target: id,
+      id: `e-root-${configId}`,
+      source: 'campaignRoot',
+      target: configId,
       type: 'structural',
     });
   });
 
-  // Tier 0: only root + configs
-  if (tier === 0) return { nodes, edges };
+  // If no techniques yet (e.g. empty or initializing run)
+  if (techKeys.length === 0) {
+    return { nodes, edges };
+  }
 
-  // ── 7-12. Groups, techniques, tasks, mutations, outcomes ──────────────────
-  let xCursor = 0;
+  // 4. Technique Columns & Tasks (Tier 2 & 3)
+  const columnsStartX = centerX - totalColumnsWidth / 2;
+  let currentX = columnsStartX;
 
-  for (const [groupName, techs] of Object.entries(groups)) {
-    const groupWidth = groupWidths[groupName];
+  techKeys.forEach((tech) => {
+    const colWidth = colWidths[tech] ?? TECH_W;
+    const techCenterX = currentX + colWidth / 2;
+    const techId = `tech-${tech}`;
+    const tList = techGroups[tech] ?? [];
 
-    // Group divider bar (tier >= 1)
+    const breakthroughCount = tList.filter((t) => t.is_breakthrough || (t.risk_score ?? 0) >= 0.7).length;
+    const defendedCount = tList.filter((t) => t.status === 'defended' || (t.status === 'completed' && !t.is_breakthrough)).length;
+    const activeCount = tList.filter((t) => LIVE_ACTIVE_STATUSES.has(t.status)).length;
+    const displayName = tech.replace(/_/g, ' ');
+    const harmGroup = tList[0]?.harm_type_group ?? tList[0]?.harm_type;
+
+    // Technique Header Node
     nodes.push({
-      id: `group-${groupName}`,
-      type: NT.GROUP_BAR,
-      position: { x: xCursor, y: GROUP_Y },
-      data: { label: groupName, width: groupWidth },
-      draggable: false,
-      selectable: false,
+      id: techId,
+      type: NT.TECHNIQUE,
+      position: { x: techCenterX - TECH_W / 2, y: TECH_Y },
+      data: {
+        technique: tech,
+        displayName,
+        taskCount: tList.length,
+        breakthroughCount,
+        defendedCount,
+        activeCount,
+        harmGroup,
+      },
+      draggable: true,
+      selectable: true,
     });
 
-    for (const tech of techs) {
-      const colW = colWidths[tech];
-      const techX = xCursor + colW / 2 - TECH_W / 2;
-      const techTasks = taskList.filter(t => t.technique === tech);
-      const visibleCount = techTasks.filter(t => visibleIds.has(t.task_id)).length;
+    // Edge from Target Config Node to Technique Node
+    edges.push({
+      id: `e-target-${techId}`,
+      source: 'config-target',
+      target: techId,
+      type: 'structural',
+    });
 
+    // 5. Tasks within this technique column
+    const tasksTotalWidth = tList.length * TASK_W + Math.max(0, tList.length - 1) * TASK_GAP;
+    const tasksStartX = techCenterX - tasksTotalWidth / 2;
+
+    tList.forEach((task, tIdx) => {
+      const taskX = tasksStartX + tIdx * (TASK_W + TASK_GAP);
+      const taskId = `task-${task.task_id}`;
+      const isDimmed = dimmedIds.has(task.task_id);
+      const isSelectedTask = selectedTaskId === task.task_id;
+      const isExpanded = expandedTaskIds.includes(task.task_id);
+      const isLiveTask = LIVE_ACTIVE_STATUSES.has(task.status);
+      const hasMutations = (task.iterations ?? 0) > 0 || (task.iterations_history && task.iterations_history.length > 0);
+
+      // Task Specimen Node
       nodes.push({
-        id: `tech-${tech}`,
-        type: NT.TECHNIQUE,
-        position: { x: techX, y: TECH_Y },
-        data: { technique: tech, taskCount: techTasks.length, visibleCount },
-        draggable: false,
+        id: taskId,
+        type: NT.TASK,
+        position: { x: taskX, y: TASK_Y },
+        data: {
+          task,
+          isExpanded,
+          hasMutations,
+          dimmed: isDimmed,
+        },
+        className: isDimmed ? 'dimmed' : undefined,
+        draggable: true,
         selectable: true,
       });
+
+      // Edge from Technique to Task
       edges.push({
-        id: `e-config-target-tech-${tech}`,
-        source: 'config-target',
-        target: `tech-${tech}`,
+        id: `e-${techId}-${taskId}`,
+        source: techId,
+        target: taskId,
         type: 'structural',
+        animated: isLiveTask,
+        className: isDimmed ? 'dimmed' : undefined,
       });
 
-      // Tier 1: technique overview only — no task chips
-      if (tier >= 2) {
-        techTasks.forEach((task, taskIdx) => {
-          const taskX = techX + (taskIdx - (techTasks.length - 1) / 2) * (TASK_CHIP_W + TASK_GAP);
-          const dimmed = dimmedIds.has(task.task_id);
-          const isLiveTask = LIVE_ACTIVE.has(task.status);
+      let lastNodeId = taskId;
+      let lastNodeY = TASK_Y;
+
+      // 6. Mutation Chain (when expanded)
+      if (isExpanded && hasMutations) {
+        const iterCount = Math.max(1, task.iterations ?? 1);
+
+        for (let iter = 1; iter <= iterCount; iter++) {
+          const mutId = `mut-${task.task_id}-${iter}`;
+          const mutY = TASK_Y + iter * MUTATION_H;
+          const iterRecord = task.iterations_history?.find((h) => h.iteration === iter) || task.iterations_history?.[iter - 1];
+          const isLatestIter = iter === iterCount;
 
           nodes.push({
-            id: `task-${task.task_id}`,
-            type: NT.TASK,
-            position: { x: taskX, y: TASK_Y },
-            data: { task, dimmed },
-            className: dimmed ? 'dimmed' : undefined,
-            draggable: false,
+            id: mutId,
+            type: NT.MUTATION,
+            position: { x: taskX, y: mutY },
+            data: {
+              iteration: iter,
+              totalIterations: iterCount,
+              prompt: iterRecord?.adversarial_prompt || (isLatestIter ? task.adversarial_prompt || task.prompt : task.prompt),
+              riskScore: iterRecord?.risk_score !== undefined ? iterRecord.risk_score : (isLatestIter ? task.risk_score : 0.0),
+              semanticDistance: (task as any).lineage_chain?.[iter - 1]?.semantic_distance_from_parent,
+              status: iterRecord ? 'completed' : (isLatestIter ? task.status : 'completed'),
+              taskId: task.task_id,
+              isLatest: isLatestIter,
+            },
+            className: isDimmed ? 'dimmed' : undefined,
+            draggable: true,
             selectable: true,
           });
+
+          // Edge from previous node to this mutation iteration
           edges.push({
-            id: `e-tech-${tech}-task-${task.task_id}`,
-            source: `tech-${tech}`,
-            target: `task-${task.task_id}`,
-            type: 'structural',
-            animated: isLiveTask,
-            className: dimmed ? 'dimmed' : undefined,
+            id: `e-${lastNodeId}-${mutId}`,
+            source: lastNodeId,
+            target: mutId,
+            type: isSelectedTask ? 'activeMutation' : 'structural',
+            animated: isSelectedTask && isLatestIter && isLiveTask,
+            className: isDimmed ? 'dimmed' : undefined,
           });
 
-          // Decide if mutations should expand
-          const shouldExpand =
-            (tier >= 3 && task.is_breakthrough) ||
-            (tier >= 4 && task.task_id === selectedTaskId);
-
-          let lastNodeId = `task-${task.task_id}`;
-          let lastY = TASK_Y;
-
-          if (shouldExpand && task.iterations > 0) {
-            for (let iter = 1; iter <= task.iterations; iter++) {
-              const mutId = `mut-${task.task_id}-${iter}`;
-              const mutY = TASK_Y + iter * MUT_H;
-              const iterRecord = task.iterations_history?.[iter - 1];
-              const isFinal = iter === task.iterations;
-              const isSelected = task.task_id === selectedTaskId;
-
-              nodes.push({
-                id: mutId,
-                type: NT.MUTATION,
-                position: { x: taskX, y: mutY },
-                data: {
-                  iteration: iter,
-                  totalIterations: task.iterations,
-                  prompt: iterRecord?.adversarial_prompt ?? (isFinal ? task.adversarial_prompt : undefined),
-                  response: iterRecord?.target_response ?? (isFinal ? task.target_response : undefined),
-                  riskScore: iterRecord?.risk_score ?? (isFinal ? task.risk_score : undefined),
-                  vectorScores: iterRecord?.vector_scores ?? (isFinal ? task.vector_scores : undefined),
-                  judgeReasoning: iterRecord?.judge_reasoning ?? (isFinal ? task.judge_reasoning : undefined),
-                  status: iterRecord ? 'completed' : (isFinal ? task.status : 'mutating'),
-                  taskId: task.task_id,
-                  dimmed,
-                  // stagger delay for CSS animation
-                  animDelay: (iter - 1) * 30,
-                },
-                className: dimmed ? 'dimmed mutation-enter' : 'mutation-enter',
-                style: { '--iter': String(iter - 1) } as React.CSSProperties,
-                draggable: false,
-                selectable: true,
-              });
-              edges.push({
-                id: `e-${lastNodeId}-${mutId}`,
-                source: lastNodeId,
-                target: mutId,
-                // Active mutation chain gets animated edge; others structural
-                type: isSelected ? 'activeMutation' : 'structural',
-                animated: isSelected && isFinal,
-                className: dimmed ? 'dimmed' : undefined,
-              });
-              lastNodeId = mutId;
-              lastY = mutY;
-            }
-          }
-
-          // Outcome node for terminal tasks
-          if (TERMINAL.has(task.status)) {
-            const outcomeId = `outcome-${task.task_id}`;
-            const outcomeY = shouldExpand && task.iterations > 0
-              ? lastY + OUTCOME_H
-              : TASK_Y + OUTCOME_H;
-
-            nodes.push({
-              id: outcomeId,
-              type: NT.OUTCOME,
-              position: { x: taskX, y: outcomeY },
-              data: {
-                status: task.status,
-                riskScore: task.risk_score,
-                iterations: task.iterations,
-                taskId: task.task_id,
-                dimmed,
-              },
-              className: dimmed ? 'dimmed' : undefined,
-              draggable: false,
-              selectable: true,
-            });
-            edges.push({
-              id: `e-${lastNodeId}-${outcomeId}`,
-              source: lastNodeId,
-              target: outcomeId,
-              type: 'structural',
-              animated: false,
-              className: [
-                task.is_breakthrough ? 'edge-breakthrough' :
-                task.status === 'defended' || task.status === 'completed' ? 'edge-defended' : 'edge-unresolved',
-                dimmed ? 'dimmed' : '',
-              ].filter(Boolean).join(' ') || undefined,
-            });
-          }
-        });
+          lastNodeId = mutId;
+          lastNodeY = mutY;
+        }
       }
 
-      xCursor += colW;
-    }
-    xCursor += GROUP_GUTTER;
-  }
+      // 7. Outcome Node (Terminal glyph)
+      if (TERMINAL_STATUSES.has(task.status)) {
+        const outcomeId = `outcome-${task.task_id}`;
+        const outcomeY = isExpanded && hasMutations ? lastNodeY + OUTCOME_H : TASK_Y + 170;
+
+        nodes.push({
+          id: outcomeId,
+          type: NT.OUTCOME,
+          position: { x: taskX, y: outcomeY },
+          data: {
+            status: task.status,
+            riskScore: task.risk_score ?? 0,
+            iterations: task.iterations ?? 0,
+            taskId: task.task_id,
+            isBreakthrough: task.is_breakthrough || (task.risk_score ?? 0) >= 0.7,
+            latencyMs: task.latency_ms,
+          },
+          className: isDimmed ? 'dimmed' : undefined,
+          draggable: true,
+          selectable: true,
+        });
+
+        // Edge to Outcome
+        edges.push({
+          id: `e-${lastNodeId}-${outcomeId}`,
+          source: lastNodeId,
+          target: outcomeId,
+          type: 'structural',
+          className: [
+            task.is_breakthrough ? 'edge-breakthrough' : 'edge-defended',
+            isDimmed ? 'dimmed' : '',
+          ]
+            .filter(Boolean)
+            .join(' '),
+        });
+      }
+    });
+
+    currentX += colWidth + COLUMN_GAP;
+  });
 
   return { nodes, edges };
 }
 
-// ── React hook wrapper ────────────────────────────────────────────────────────
 export function useGraphLayout(): { nodes: Node[]; edges: Edge[] } {
-  const liveTasks = usePipelineStore(s => s.liveTasks);
-  const activeRunMeta = usePipelineStore(s => s.activeRunMeta);
-  const activeRunId = usePipelineStore(s => s.activeRunId);
-  const replayMode = useGraphStore(s => s.replay.mode);
-  const replayTasks = useGraphStore(s => s.replayTasks);
-  const filters = useGraphStore(s => s.filters);
-  const selectedTaskId = useGraphStore(s => s.selectedTaskId);
-  const tier = useGraphStore(s => s.semanticZoomTier);
+  const liveTasks = usePipelineStore((s) => s.liveTasks);
+  const activeRunMeta = usePipelineStore((s) => s.activeRunMeta);
+  const activeRunId = usePipelineStore((s) => s.activeRunId);
 
-  // Defer for large task lists — keeps SSE ingestion unblocked
-  const deferredLiveTasks = useDeferredValue(liveTasks);
-  const deferredReplayTasks = useDeferredValue(replayTasks);
+  const expandedTaskIds = useGraphStore((s) => s.expandedTaskIds);
+  const selectedTaskId = useGraphStore((s) => s.selectedTaskId);
+  const { visibleIds, dimmedIds } = useFilteredTasks();
+
+  const deferredTasks = useDeferredValue(liveTasks);
 
   return useMemo(() => {
-    const tasks = replayMode === 'paused' ? deferredReplayTasks : deferredLiveTasks;
-    return computeLayout(tasks, activeRunMeta, filters, selectedTaskId, tier, activeRunId);
-  }, [deferredLiveTasks, deferredReplayTasks, activeRunMeta, activeRunId, filters, selectedTaskId, tier, replayMode]);
+    return computeLayout(
+      deferredTasks,
+      activeRunMeta,
+      expandedTaskIds,
+      visibleIds,
+      dimmedIds,
+      selectedTaskId,
+      activeRunId
+    );
+  }, [
+    deferredTasks,
+    activeRunMeta,
+    expandedTaskIds,
+    visibleIds,
+    dimmedIds,
+    selectedTaskId,
+    activeRunId,
+  ]);
 }
-
-// Need React for CSSProperties type
-import React from 'react';

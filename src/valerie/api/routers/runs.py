@@ -16,18 +16,35 @@ from valerie.graph.nodes import DOMAIN_FILES
 router = APIRouter(prefix="/runs", tags=["Runs"])
 logger = logging.getLogger("api.runs")
 
+from pydantic import BaseModel, Field, AliasChoices, field_validator
+
 class RunConfigRequest(BaseModel):
     domain: str
     harm_types: list[str] = Field(default_factory=list)
-    techniques: list[str] = Field(..., min_length=1)
+    techniques: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("techniques", "selected_techniques"),
+    )
     endpoint_id: str
-    judge_model: str
-    attacker_model: str
+    judge_endpoint_id: str | None = None
+    judge_model: str = "mistral/mistral-large-latest"
+    attacker_model: str = "mistral/mistral-small-latest"
+    target_model: str | None = None
+    target_api_key: str | None = None
     attacker_api_key: str | None = None
     judge_api_key: str | None = None
     max_iterations: int = Field(default=3, ge=1, le=20)
     risk_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     max_concurrency: int = Field(default=10, ge=1, le=50)
+    sample_size: int | None = Field(default=None, ge=1, le=500)
+
+    @field_validator("attacker_model")
+    @classmethod
+    def lock_attacker_to_mistral_small(cls, v: str) -> str:
+        # Attacker model is locked strictly to Mistral Small
+        if not v or "mistral-small" not in v.lower():
+            return "mistral/mistral-small-latest"
+        return v
 
 
 class WorkerTaskPayload(BaseModel):
@@ -38,13 +55,17 @@ class WorkerTaskPayload(BaseModel):
     harm_types: list[str]
     selected_techniques: list[str]
     endpoint_id: str
+    judge_endpoint_id: str | None = None
     judge_model: str
     attacker_model: str
+    target_model: str | None = None
+    target_api_key: str | None = None
     attacker_api_key: str | None = None
     judge_api_key: str | None = None
     max_iterations: int = 3
     risk_threshold: float = 0.7
     max_concurrency: int = 10
+    sample_size: int | None = None
 
 
 
@@ -128,18 +149,34 @@ async def create_run(
     if user["id"] != "admin_master" and endpoint.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Forbidden: You do not own this endpoint.")
 
+    # Validate Judge Endpoint if provided (LiteLLM chat endpoint enforcement)
+    judge_ep_name = None
+    if config.judge_endpoint_id:
+        judge_ep = await db.endpoints.find_one({"id": config.judge_endpoint_id})
+        if not judge_ep:
+            raise HTTPException(status_code=404, detail=f"Judge Endpoint '{config.judge_endpoint_id}' not found.")
+        if user["id"] != "admin_master" and judge_ep.get("user_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Forbidden: You do not own this judge endpoint.")
+        # LiteLLM router requires chat completions interface
+        if judge_ep.get("provider") == "custom" and judge_ep.get("custom_payload_template"):
+            raise HTTPException(
+                status_code=400,
+                detail="Judge endpoint must be a LiteLLM-compatible chat endpoint (OpenAI-compatible, Anthropic, or Gemini). Custom payload templates cannot be used as an LLM Judge."
+            )
+        judge_ep_name = judge_ep.get("name")
 
     run_id = str(uuid4())
     run_record = PipelineRun(
         id=run_id,
         user_id=user["id"],
         endpoint_id=config.endpoint_id,
+        judge_endpoint_id=config.judge_endpoint_id,
         status="queued",
         domain=config.domain,
         harm_types=config.harm_types,
         selected_techniques=config.techniques,
-        target_model=endpoint.get("name", "deferred_to_worker"),
-        judge_model=config.judge_model,
+        target_model=config.target_model or endpoint.get("name", "deferred_to_worker"),
+        judge_model=judge_ep_name or config.judge_model,
         attacker_model=config.attacker_model,
     )
 
@@ -152,13 +189,17 @@ async def create_run(
         harm_types=config.harm_types,
         selected_techniques=config.techniques,
         endpoint_id=config.endpoint_id,
-        judge_model=config.judge_model,
+        judge_endpoint_id=config.judge_endpoint_id,
+        target_model=config.target_model,
+        target_api_key=config.target_api_key,
+        judge_model=judge_ep_name or config.judge_model,
         attacker_model=config.attacker_model,
         attacker_api_key=config.attacker_api_key,
         judge_api_key=config.judge_api_key,
         max_iterations=config.max_iterations,
         risk_threshold=config.risk_threshold,
         max_concurrency=config.max_concurrency,
+        sample_size=config.sample_size,
     )
 
     await _dispatch_task(payload_obj.model_dump(), background_tasks)
@@ -200,6 +241,28 @@ async def get_run(run_id: str, user=Depends(require_api_key)):
         raise HTTPException(404, "Run not found")
     run.pop("_id", None)
     return run
+
+@router.post("/{run_id}/cancel")
+async def cancel_run(run_id: str, user=Depends(require_api_key)):
+    query = {"id": run_id} if user["id"] == "admin_master" else {"id": run_id, "user_id": user["id"]}
+    run = await db.pipeline_runs.find_one(query)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    
+    if run.get("status") in ["running", "queued"]:
+        await db.pipeline_runs.update_one(
+            {"id": run_id},
+            {"$set": {"status": "failed", "error_message": "Campaign aborted by operator"}}
+        )
+        await publisher.publish(Event(
+            type="run.failed",
+            source="api.cancel",
+            correlation_id=run_id,
+            payload={"run_id": run_id, "error": "Campaign aborted by operator"}
+        ))
+        return {"status": "cancelled", "run_id": run_id, "message": "Campaign cancelled successfully"}
+    
+    return {"status": run.get("status"), "run_id": run_id, "message": "Run is already finished"}
 
 from fastapi.responses import StreamingResponse
 from valerie.core.events import EventSubscriber
@@ -293,7 +356,13 @@ async def stream_run_events(
                 if run_id != "all":
                     matches = event.correlation_id == run_id
                 elif owned_run_ids is not None:
-                    matches = event.correlation_id in owned_run_ids
+                    # If event carries user_id matching caller or is in known owned set
+                    event_user = event.payload.get("user_id") if isinstance(event.payload, dict) else None
+                    if event_user == user["id"]:
+                        owned_run_ids.add(str(event.correlation_id))
+                        matches = True
+                    else:
+                        matches = str(event.correlation_id) in owned_run_ids
                 else:
                     matches = True
 

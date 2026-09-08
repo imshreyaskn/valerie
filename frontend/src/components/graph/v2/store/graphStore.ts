@@ -1,246 +1,183 @@
 /**
  * v2/store/graphStore.ts
- * Zustand store for Campaign Graph v2: selection, filters, replay, semantic zoom.
- *
- * Store reads: Canvas, Inspector, DebugBar, FilterChips, StatsCard, useGraphLayout
- * Store writes: Canvas (zoom, selection), Inspector (close, resize, sections),
- *               DebugBar (replay), FilterChips (filters), useReplayBuffer (pushEvent)
- *
- * Persist: only display preferences (inspectorWidth, sectionExpansion, filters minus
- *          session-only flags). NEVER persist eventRing — it would fill localStorage.
+ * Clean Zustand store for Campaign Graph: selection, expanded mutation branches,
+ * inspector drawer state, and unified filters.
  */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { TaskEvent, LiveTask } from '../../../../stores/pipelineStore';
-import type { GraphFilters } from '../types';
-import { applyEventToTasks } from '../../../../stores/pipelineStore';
+import type { FilterState } from '../../../../types/filters';
 
-// ── Replay state machine ──────────────────────────────────────────────────────
-interface GraphReplayState {
-  mode: 'live' | 'paused';
-  eventCursor: number | null; // null = live tail
-}
-
-// ── Full store interface ──────────────────────────────────────────────────────
-interface GraphStoreState {
+export interface GraphStoreState {
   // Selection
   selectedTaskId: string | null;
   selectedMutationIter: number | null;
-  multiSelectedIds: string[];
-  selectedNodeId: string | null; // for root/config nodes
+  selectedNodeId: string | null; // For root ('campaignRoot') or config nodes ('config-attacker', 'config-target', 'config-judge')
+  expandedTaskIds: string[]; // List of task IDs whose mutation chains are currently expanded
 
   // Inspector
   inspectorOpen: boolean;
-  inspectorWidth: number; // clamped 360-560
-  sectionExpansion: Record<string, boolean>;
+  inspectorWidth: number; // Clamped 360 - 540
 
-  // Filters
-  filters: GraphFilters;
+  // Filters — Unified with Mission Control FilterState
+  filters: FilterState;
 
-  // Semantic zoom tier (0-4)
-  semanticZoomTier: 0 | 1 | 2 | 3 | 4;
-
-  // Replay
-  replay: GraphReplayState;
-  eventRing: TaskEvent[]; // ring buffer, cap 5000
-  replayTasks: Record<string, LiveTask>; // derived when mode==='paused'
-
-  // Local-only flags (not persisted)
-  pinnedNodeIds: string[];
-  markedForReviewIds: string[];
+  // Viewport / Zoom
+  zoomLevel: number;
 
   // Actions
-  selectTask: (id: string | null) => void;
+  selectTask: (id: string | null, iter?: number | null) => void;
   selectMutation: (taskId: string, iter: number | null) => void;
-  toggleMultiSelect: (id: string) => void;
   selectNodeId: (id: string | null) => void;
+  toggleExpandTask: (id: string) => void;
+  expandAllBreakthroughs: (tasks: Record<string, LiveTask>) => void;
+  expandAllTasks: (taskIds: string[]) => void;
+  collapseAll: () => void;
+  setFilters: (update: Partial<FilterState>) => void;
+  resetFilters: () => void;
   openInspector: () => void;
   closeInspector: () => void;
   setInspectorWidth: (w: number) => void;
-  toggleSection: (key: string) => void;
-  setFilter: <K extends keyof GraphFilters>(key: K, value: GraphFilters[K]) => void;
-  clearFilters: () => void;
-  setSemanticZoomTier: (tier: 0 | 1 | 2 | 3 | 4) => void;
-  enterReplayMode: () => void;
-  exitReplayMode: () => void;
-  stepReplay: (direction: 1 | -1) => void;
-  setEventCursor: (n: number | null) => void;
+  setZoomLevel: (z: number) => void;
   pushEvent: (event: TaskEvent) => void;
-  rebuildReplayTasks: () => void;
-  togglePin: (id: string) => void;
-  toggleMarkForReview: (id: string) => void;
   reset: () => void;
 }
 
-const EVENT_RING_CAP = 5000;
-
-const DEFAULT_FILTERS: GraphFilters = {
-  statuses: [],
-  techniques: [],
-  harmTypes: [],
-  breakthroughOnly: false,
-  showResolved: true,
-};
-
-const DEFAULT_SECTION_EXPANSION: Record<string, boolean> = {
-  'task.status': true,
-  'task.adversarial_prompt': true,
-  'task.vector_scores': true,
-  // all others default collapsed (falsy key = collapsed)
+export const DEFAULT_GRAPH_FILTERS: FilterState = {
+  status: 'ALL',
+  technique: 'ALL',
+  harmType: 'ALL',
+  minRisk: 0,
+  searchQuery: '',
 };
 
 export const useGraphStore = create<GraphStoreState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       // Initial state
       selectedTaskId: null,
       selectedMutationIter: null,
-      multiSelectedIds: [],
       selectedNodeId: null,
+      expandedTaskIds: [],
+
       inspectorOpen: false,
-      inspectorWidth: 400,
-      sectionExpansion: DEFAULT_SECTION_EXPANSION,
-      filters: DEFAULT_FILTERS,
-      semanticZoomTier: 2,
-      replay: { mode: 'live', eventCursor: null },
-      eventRing: [],
-      replayTasks: {},
-      pinnedNodeIds: [],
-      markedForReviewIds: [],
+      inspectorWidth: 420,
 
-      // ── Selection actions ────────────────────────────────────────────────────
-      selectTask: (id) => set({
-        selectedTaskId: id,
-        selectedMutationIter: null,
-        inspectorOpen: id !== null,
-        selectedNodeId: null,
-      }),
+      filters: DEFAULT_GRAPH_FILTERS,
+      zoomLevel: 1.0,
 
-      selectMutation: (taskId, iter) => set({
-        selectedTaskId: taskId,
-        selectedMutationIter: iter,
-        inspectorOpen: true,
-        selectedNodeId: null,
-      }),
-
-      toggleMultiSelect: (id) => set((s) => {
-        if (s.multiSelectedIds.includes(id)) {
-          return { multiSelectedIds: s.multiSelectedIds.filter(x => x !== id) };
+      // Actions
+      selectTask: (id, iter = null) => {
+        if (!id) {
+          set({
+            selectedTaskId: null,
+            selectedMutationIter: null,
+            selectedNodeId: null,
+            inspectorOpen: false,
+          });
+          return;
         }
-        const ids = s.multiSelectedIds.length >= 5
-          ? [...s.multiSelectedIds.slice(1), id]  // FIFO cap at 5
-          : [...s.multiSelectedIds, id];
-        return { multiSelectedIds: ids };
-      }),
 
-      selectNodeId: (id) => set({
-        selectedNodeId: id,
-        selectedTaskId: null,
-        selectedMutationIter: null,
-        inspectorOpen: id !== null,
-      }),
+        const currentExpanded = get().expandedTaskIds;
+        const willExpand = currentExpanded.includes(id) ? currentExpanded : [...currentExpanded, id];
 
-      // ── Inspector actions ────────────────────────────────────────────────────
+        set({
+          selectedTaskId: id,
+          selectedMutationIter: iter,
+          selectedNodeId: null,
+          expandedTaskIds: willExpand,
+          inspectorOpen: true,
+        });
+      },
+
+      selectMutation: (taskId, iter) => {
+        set({
+          selectedTaskId: taskId,
+          selectedMutationIter: iter,
+          selectedNodeId: null,
+          inspectorOpen: true,
+        });
+      },
+
+      selectNodeId: (id) => {
+        if (!id) {
+          set({ selectedNodeId: null, inspectorOpen: false });
+          return;
+        }
+        set({
+          selectedNodeId: id,
+          selectedTaskId: null,
+          selectedMutationIter: null,
+          inspectorOpen: true,
+        });
+      },
+
+      toggleExpandTask: (id) => {
+        const current = get().expandedTaskIds;
+        if (current.includes(id)) {
+          set({ expandedTaskIds: current.filter((x) => x !== id) });
+        } else {
+          set({ expandedTaskIds: [...current, id] });
+        }
+      },
+
+      expandAllBreakthroughs: (tasks) => {
+        const breakthroughIds = Object.values(tasks)
+          .filter((t) => t.is_breakthrough || (t.risk_score ?? 0) >= 0.7)
+          .map((t) => t.task_id);
+        const setIds = new Set([...get().expandedTaskIds, ...breakthroughIds]);
+        set({ expandedTaskIds: Array.from(setIds) });
+      },
+
+      expandAllTasks: (taskIds) => {
+        set({ expandedTaskIds: Array.from(new Set([...get().expandedTaskIds, ...taskIds])) });
+      },
+
+      collapseAll: () => {
+        set({ expandedTaskIds: [] });
+      },
+
+      setFilters: (update) => {
+        set((state) => ({
+          filters: { ...state.filters, ...update },
+        }));
+      },
+
+      resetFilters: () => {
+        set({ filters: DEFAULT_GRAPH_FILTERS });
+      },
+
       openInspector: () => set({ inspectorOpen: true }),
-      closeInspector: () => set({ inspectorOpen: false, selectedTaskId: null, selectedNodeId: null }),
-      setInspectorWidth: (w) => set({ inspectorWidth: Math.max(360, Math.min(560, w)) }),
-      toggleSection: (key) => set((s) => ({
-        sectionExpansion: { ...s.sectionExpansion, [key]: !s.sectionExpansion[key] },
-      })),
+      closeInspector: () => set({ inspectorOpen: false }),
 
-      // ── Filter actions ───────────────────────────────────────────────────────
-      setFilter: (key, value) => set((s) => ({
-        filters: { ...s.filters, [key]: value },
-      })),
-      clearFilters: () => set({ filters: DEFAULT_FILTERS }),
+      setInspectorWidth: (w) => {
+        const clamped = Math.max(360, Math.min(540, w));
+        set({ inspectorWidth: clamped });
+      },
 
-      // ── Semantic zoom ────────────────────────────────────────────────────────
-      setSemanticZoomTier: (tier) => set({ semanticZoomTier: tier }),
+      setZoomLevel: (zoomLevel) => set({ zoomLevel }),
 
-      // ── Replay actions ───────────────────────────────────────────────────────
-      enterReplayMode: () => set((s) => ({
-        replay: { mode: 'paused', eventCursor: s.eventRing.length },
-      })),
+      // Lightweight telemetry event hook if needed
+      pushEvent: (_event: TaskEvent) => {
+        // No-op or future telemetry hook
+      },
 
-      exitReplayMode: () => set({
-        replay: { mode: 'live', eventCursor: null },
-        replayTasks: {},
-      }),
-
-      stepReplay: (direction) => set((s) => {
-        if (s.replay.mode !== 'paused') return s;
-        const current = s.replay.eventCursor ?? s.eventRing.length;
-        const next = Math.max(0, Math.min(s.eventRing.length, current + direction));
-        return { replay: { mode: 'paused', eventCursor: next } };
-      }),
-
-      setEventCursor: (n) => set({ replay: { mode: 'paused', eventCursor: n } }),
-
-      pushEvent: (event) => set((s) => {
-        const ring = s.eventRing.length >= EVENT_RING_CAP
-          ? [...s.eventRing.slice(1), event]  // drop oldest
-          : [...s.eventRing, event];
-        return { eventRing: ring };
-      }),
-
-      rebuildReplayTasks: () => set((s) => {
-        if (s.replay.mode !== 'paused') return { replayTasks: {} };
-        const cursor = s.replay.eventCursor ?? s.eventRing.length;
-        const events = s.eventRing.slice(0, cursor);
-        return { replayTasks: rebuildTasksFromEvents(events) };
-      }),
-
-      // ── Pin / review flags ───────────────────────────────────────────────────
-      togglePin: (id) => set((s) => ({
-        pinnedNodeIds: s.pinnedNodeIds.includes(id)
-          ? s.pinnedNodeIds.filter(x => x !== id)
-          : [...s.pinnedNodeIds, id],
-      })),
-
-      toggleMarkForReview: (id) => set((s) => ({
-        markedForReviewIds: s.markedForReviewIds.includes(id)
-          ? s.markedForReviewIds.filter(x => x !== id)
-          : [...s.markedForReviewIds, id],
-      })),
-
-      // ── Reset (call on run change) ────────────────────────────────────────────
-      reset: () => set({
-        selectedTaskId: null,
-        selectedMutationIter: null,
-        multiSelectedIds: [],
-        selectedNodeId: null,
-        inspectorOpen: false,
-        replay: { mode: 'live', eventCursor: null },
-        eventRing: [],
-        replayTasks: {},
-        pinnedNodeIds: [],
-        markedForReviewIds: [],
-      }),
+      reset: () => {
+        set({
+          selectedTaskId: null,
+          selectedMutationIter: null,
+          selectedNodeId: null,
+          expandedTaskIds: [],
+          inspectorOpen: false,
+          filters: DEFAULT_GRAPH_FILTERS,
+        });
+      },
     }),
     {
-      name: 'valerie-graph-store',
-      // Persist only display preferences — not session-specific state
-      partialize: (s) => ({
-        inspectorWidth: s.inspectorWidth,
-        sectionExpansion: s.sectionExpansion,
-        // Don't persist breakthroughOnly (session-only toggle)
-        filters: { ...s.filters, breakthroughOnly: false },
+      name: 'valerie-graph-settings',
+      partialize: (state) => ({
+        inspectorWidth: state.inspectorWidth,
       }),
     }
   )
 );
-
-// ── Pure replay rebuild function ──────────────────────────────────────────────
-// Shared with pipelineStore via the extracted applyEventToTasks pure function.
-export function rebuildTasksFromEvents(
-  events: TaskEvent[]
-): Record<string, LiveTask> {
-  const tasks: Record<string, LiveTask> = {};
-  for (const event of events) {
-    const tid = event.payload?.task_id;
-    if (!tid) continue;
-    const next = applyEventToTasks(tasks[tid], event);
-    if (next) tasks[tid] = next;
-  }
-  return tasks;
-}

@@ -4,7 +4,6 @@ import {
   Key, Settings, Power, Search, Plus
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { usePipelineStore } from '../stores/pipelineStore';
 import { VTooltip } from './ui';
 
 interface NavRoute {
@@ -28,8 +27,6 @@ export default function FloatingNav() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const runStatus = usePipelineStore(s => s.runStats.status);
-  const isLive = runStatus === 'running';
 
   const isPathActive = (to: string, end: boolean) => {
     if (end) return location.pathname === to;
@@ -48,22 +45,15 @@ export default function FloatingNav() {
       aria-label="Floating Primary Navigation"
     >
       {/* Zone 1: Brand Section */}
-      <div className="flex items-center gap-3 pr-5 shrink-0 font-mono">
-        <span className="font-bold tracking-[0.25em] text-slate text-xs uppercase">
-          VALERIE
+      <Link
+        to="/"
+        className="flex items-center pr-5 shrink-0 hover:opacity-75 transition-opacity cursor-pointer"
+        title="Return to Overview / Landing Page"
+      >
+        <span className="font-sans font-normal tracking-normal text-slate text-xs uppercase">
+          VALERIE.
         </span>
-        {isLive ? (
-          <span
-            className="w-2.5 h-2.5 rounded-full bg-olive animate-pulse-dot"
-            title="Active Pipeline Running"
-          />
-        ) : (
-          <span
-            className="w-2 h-2 rounded-full bg-steel/40"
-            title="Idle"
-          />
-        )}
-      </div>
+      </Link>
 
       {/* Hairline Divider */}
       <div className="h-6 w-[1px] bg-hairline mr-4 shrink-0" aria-hidden="true" />

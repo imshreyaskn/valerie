@@ -1,27 +1,23 @@
 import { Search, Plus } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
-import { usePipelineStore } from '../stores/pipelineStore';
 import { useLauncherStore } from '../stores/launcherStore';
 
 export function CommandStrip() {
   const location = useLocation();
-  const runStats = usePipelineStore((s) => s.runStats);
   const openLauncher = useLauncherStore((s) => s.openLauncher);
 
   const pageCode = (() => {
     const path = location.pathname;
-    if (path === '/dashboard') return '01.00 // MISSION CONTROL';
-    if (path.includes('campaigns')) return '02.00 // CAMPAIGNS';
-    if (path.includes('investigation')) return '03.00 // INVESTIGATION';
-    if (path.includes('findings')) return '04.00 // FINDINGS';
-    if (path.includes('weaknesses')) return '05.00 // WEAKNESSES';
-    if (path.includes('endpoints')) return '06.00 // TARGET ENDPOINTS';
-    if (path.includes('keys')) return '07.00 // API KEYS';
-    if (path.includes('settings')) return '08.00 // SETTINGS';
-    return '00.00 // VALERIE';
+    if (path === '/dashboard') return '01.00 · MISSION CONTROL';
+    if (path.includes('campaigns')) return '02.00 · CAMPAIGNS';
+    if (path.includes('investigation')) return '03.00 · INVESTIGATION';
+    if (path.includes('findings')) return '04.00 · FINDINGS';
+    if (path.includes('weaknesses')) return '05.00 · WEAKNESSES';
+    if (path.includes('endpoints')) return '06.00 · TARGET ENDPOINTS';
+    if (path.includes('keys')) return '07.00 · API KEYS';
+    if (path.includes('settings')) return '08.00 · SETTINGS';
+    return '00.00 · VALERIE.';
   })();
-
-  const isStreaming = runStats.status === 'running';
 
   const triggerPalette = () => {
     document.dispatchEvent(
@@ -33,27 +29,12 @@ export function CommandStrip() {
     <header className="flex items-center justify-between h-14 px-6 md:px-16 bg-parchment hairline-bottom shrink-0 select-none z-30">
       {/* Left: Section Stamp */}
       <div className="flex items-center gap-3 font-mono text-xs text-steel">
-        <span className="font-bold text-slate tracking-[0.15em] uppercase">VALERIE</span>
+        <span className="font-sans font-normal text-slate uppercase text-xs">VALERIE.</span>
         <span>{pageCode}</span>
       </div>
 
-      {/* Right: Telemetry & Actions */}
-      <div className="flex items-center gap-4 font-mono text-xs">
-        {/* Stream Status (Old Money Olive) */}
-        <div className="flex items-center gap-2">
-          {isStreaming ? (
-            <>
-              <span className="w-2 h-2 rounded-full bg-olive animate-pulse-dot" />
-              <span className="text-olive font-bold uppercase">STREAM LIVE</span>
-            </>
-          ) : (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-steel/50" />
-              <span className="text-steel uppercase">STREAM IDLE</span>
-            </>
-          )}
-        </div>
-
+      {/* Right: Actions */}
+      <div className="flex items-center gap-3 font-mono text-xs">
         {/* Search trigger */}
         <button
           onClick={triggerPalette}

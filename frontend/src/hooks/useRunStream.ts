@@ -7,12 +7,14 @@ import { api } from '../utils/api';
 const MAX_CONSECUTIVE_FAILURES = 3;
 
 export function useRunStream(runId: string | null) {
-  const processEvent = usePipelineStore((state) => state.processEvent);
+  const processEventsBatch = usePipelineStore((state) => state.processEventsBatch);
   const subscribeRun = usePipelineStore((state) => state.subscribeRun);
   const setStreamHealth = usePipelineStore((state) => state.setStreamHealth);
   const reconnectTrigger = usePipelineStore((state) => state.reconnectTrigger);
   const eventSourceRef = useRef<EventSource | null>(null);
   const consecutiveFailuresRef = useRef(0);
+  const eventQueueRef = useRef<TaskEvent[]>([]);
+  const frameHandleRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!runId) {
@@ -30,6 +32,19 @@ export function useRunStream(runId: string | null) {
     // Register interest so processEvent accepts this run's events.
     subscribeRun(runId);
     setStreamHealth('connecting');
+
+    const flushQueue = () => {
+      frameHandleRef.current = null;
+      if (eventQueueRef.current.length > 0) {
+        const batch = eventQueueRef.current;
+        eventQueueRef.current = [];
+        processEventsBatch(batch);
+        const graphState = useGraphStore.getState();
+        for (let i = 0; i < batch.length; i++) {
+          graphState.pushEvent(batch[i]);
+        }
+      }
+    };
 
     const connect = async () => {
       try {
@@ -51,10 +66,12 @@ export function useRunStream(runId: string | null) {
 
         eventSource.onmessage = (e) => {
           try {
-            setStreamHealth('connected');
             const eventEnvelope = JSON.parse(e.data) as TaskEvent;
-            processEvent(eventEnvelope);
-            useGraphStore.getState().pushEvent(eventEnvelope);
+            eventQueueRef.current.push(eventEnvelope);
+
+            if (frameHandleRef.current === null) {
+              frameHandleRef.current = requestAnimationFrame(flushQueue);
+            }
           } catch (err) {
             console.error('Failed to parse SSE message', err);
           }
@@ -85,10 +102,17 @@ export function useRunStream(runId: string | null) {
 
     return () => {
       cancelled = true;
+      if (frameHandleRef.current !== null) {
+        cancelAnimationFrame(frameHandleRef.current);
+        frameHandleRef.current = null;
+      }
+      if (eventQueueRef.current.length > 0) {
+        flushQueue();
+      }
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
     };
-  }, [runId, reconnectTrigger, processEvent, subscribeRun, setStreamHealth]);
+  }, [runId, reconnectTrigger, processEventsBatch, subscribeRun, setStreamHealth]);
 }

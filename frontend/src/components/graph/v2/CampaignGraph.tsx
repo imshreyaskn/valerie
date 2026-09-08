@@ -1,37 +1,47 @@
 /**
  * v2/CampaignGraph.tsx
- * v2 orchestrator — wraps Canvas with ReactFlowProvider and resets graphStore on run change.
- * Replaces CampaignGraphCanvas as the v2 entry point rendered by CampaignGraphModal.
- *
- * Store reads: pipelineStore.activeRunId
- * Store writes: graphStore.reset (on run change)
+ * Top-level Orchestrator for Campaign Graph.
+ * Wraps Canvas with ReactFlowProvider and initializes state on run change.
  */
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { usePipelineStore } from '../../../stores/pipelineStore';
 import { useGraphStore } from './store/graphStore';
 import { Canvas } from './Canvas';
 
 interface Props {
-  showFilters?: boolean;
-  showDebugBar?: boolean;
+  className?: string;
 }
 
-export const CampaignGraph = memo(function CampaignGraph({
-  showFilters = true,
-  showDebugBar = true,
-}: Props) {
-  const activeRunId = usePipelineStore(s => s.activeRunId);
-  const reset = useGraphStore(s => s.reset);
+export const CampaignGraph = memo(function CampaignGraph({ className = '' }: Props) {
+  const activeRunId = usePipelineStore((s) => s.activeRunId);
+  const liveTasks = usePipelineStore((s) => s.liveTasks);
+  const reset = useGraphStore((s) => s.reset);
+  const expandAllBreakthroughs = useGraphStore((s) => s.expandAllBreakthroughs);
+  const initializedRunIdRef = useRef<string | null>(null);
 
-  // Reset graph state when the run changes
+  // Initialize graph state and auto-expand breakthroughs once per run ID
   useEffect(() => {
-    reset();
-  }, [activeRunId, reset]);
+    if (activeRunId !== initializedRunIdRef.current) {
+      initializedRunIdRef.current = activeRunId;
+      reset();
+      if (liveTasks && Object.keys(liveTasks).length > 0) {
+        expandAllBreakthroughs(liveTasks);
+      }
+    } else if (
+      activeRunId &&
+      useGraphStore.getState().expandedTaskIds.length === 0 &&
+      Object.keys(liveTasks).length > 0
+    ) {
+      expandAllBreakthroughs(liveTasks);
+    }
+  }, [activeRunId, liveTasks, reset, expandAllBreakthroughs]);
 
   return (
     <ReactFlowProvider>
-      <Canvas showFilters={showFilters} showDebugBar={showDebugBar} />
+      <div className={`w-full h-full relative ${className}`}>
+        <Canvas />
+      </div>
     </ReactFlowProvider>
   );
 });

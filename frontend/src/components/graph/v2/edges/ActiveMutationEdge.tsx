@@ -1,19 +1,28 @@
 /**
  * v2/edges/ActiveMutationEdge.tsx
- * Animated edge for the selected task's active mutation chain.
- * Uses framer-motion pathLength animation for the "drawing" effect.
+ * Animated dashed edge for mutation iterations with subtle framer-motion path animation.
  */
 import { memo } from 'react';
 import { getSmoothStepPath, type EdgeProps } from '@xyflow/react';
 import { motion, useReducedMotion } from 'framer-motion';
 
 export const ActiveMutationEdge = memo(function ActiveMutationEdge({
-  sourceX, sourceY, targetX, targetY,
-  sourcePosition, targetPosition,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
 }: EdgeProps) {
   const [edgePath] = getSmoothStepPath({
-    sourceX, sourceY, sourcePosition,
-    targetX, targetY, targetPosition,
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    borderRadius: 6,
   });
   const reducedMotion = useReducedMotion();
 
@@ -21,12 +30,12 @@ export const ActiveMutationEdge = memo(function ActiveMutationEdge({
     <motion.path
       d={edgePath}
       fill="none"
-      stroke="var(--color-hairline)"
-      strokeWidth={1}
-      strokeDasharray="4 2"
-      initial={{ pathLength: reducedMotion ? 1 : 0 }}
-      animate={{ pathLength: 1 }}
-      transition={reducedMotion ? { duration: 0 } : { duration: 0.4, ease: 'easeOut' }}
+      stroke={style?.stroke ?? 'var(--color-steel)'}
+      strokeWidth={1.5}
+      strokeDasharray="4 3"
+      initial={{ pathLength: reducedMotion ? 1 : 0, opacity: 0.4 }}
+      animate={{ pathLength: 1, opacity: 1 }}
+      transition={reducedMotion ? { duration: 0 } : { duration: 0.35, ease: 'easeOut' }}
     />
   );
 });

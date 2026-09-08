@@ -29,8 +29,9 @@ class PromptEntity(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 class Evidence(BaseModel):
-    type: str # "pii_leakage", "toxicity", "bias", "safety_bypass", etc.
-    description: str
+    type: str # "adversarial_prompt", "target_response", "seed_prompt", "pii_leakage", "toxicity", "bias", etc.
+    description: str = ""
+    content: str | None = None
     tokens: str | None = None
     token_positions: tuple[int, int] | None = None
     confidence: float = 1.0
@@ -43,6 +44,12 @@ class Finding(BaseModel):
     run_id: str
     task_id: str
     severity: str # critical, high, medium, low, info
+    score: float = 0.0
+    domain: str = "general"
+    harm_type: str = "general"
+    adversarial_prompt: str = ""
+    target_response: str = ""
+    original_prompt: str = ""
     verdict: dict[str, Any]
     evidence: list[Evidence] = []
     weakness_id: str | None = None

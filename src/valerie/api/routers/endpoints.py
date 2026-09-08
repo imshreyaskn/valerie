@@ -29,7 +29,8 @@ def _public_endpoint(doc: dict) -> dict:
 
 @router.get("/")
 async def list_endpoints(user=Depends(require_api_key)):
-    cursor = db.endpoints.find({"user_id": user["id"]}).sort("created_at", -1)
+    query = {} if user["id"] == "admin_master" else {"user_id": user["id"]}
+    cursor = db.endpoints.find(query).sort("created_at", -1)
     endpoints = await cursor.to_list(length=100)
     return {"endpoints": [_public_endpoint(e) for e in endpoints]}
 
@@ -74,6 +75,7 @@ async def delete_endpoint(endpoint_id: str, user=Depends(require_api_key)):
 
 @router.post("/{endpoint_id}/test")
 async def test_endpoint(endpoint_id: str, user=Depends(require_api_key)):
+    import time
     query = {"id": endpoint_id} if user["id"] == "admin_master" else {"id": endpoint_id, "user_id": user["id"]}
     endpoint = await db.endpoints.find_one(query)
     if not endpoint:
@@ -87,18 +89,36 @@ async def test_endpoint(endpoint_id: str, user=Depends(require_api_key)):
         from valerie.llm.validator import is_safe_url
         is_safe, reason = is_safe_url(base_url)
         if not is_safe:
-            return {"status": "error", "detail": f"Forbidden target URL: {reason}"}
+            return {"status": "error", "detail": f"Forbidden target URL: {reason}", "latency_ms": None}
 
+    t0 = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            if provider == "openai_compat":
-                resp = await client.get(f"{base_url}/models", headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
+        if provider == "mistral" or "mistral" in (base_url or "").lower():
+            from valerie.llm.router import call_llm
+            await call_llm(
+                messages=[{"role": "user", "content": "Ping"}],
+                model=provider if "/" in provider else "mistral/mistral-small-latest",
+                api_key=api_key,
+                api_base=base_url,
+                timeout=10
+            )
+        elif provider == "openai_compat" or provider == "openai":
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                url = f"{base_url.rstrip('/')}/models" if base_url else "https://api.openai.com/v1/models"
+                resp = await client.get(url, headers={"Authorization": f"Bearer {api_key}"} if api_key else {})
                 resp.raise_for_status()
-            elif provider == "anthropic":
+        elif provider == "anthropic":
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get("https://api.anthropic.com/v1/models", headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"})
                 resp.raise_for_status()
-            return {"status": "ok"}
+        else:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                if base_url:
+                    resp = await client.get(base_url)
+                    resp.raise_for_status()
+
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        return {"status": "ok", "latency_ms": latency_ms, "detail": f"Connection verified in {latency_ms}ms"}
     except Exception as e:
-        # Return the exception class plus a truncated message; avoid leaking
-        # full stack traces or internal hostnames to the client.
-        return {"status": "error", "detail": f"{type(e).__name__}: {str(e)[:200]}"}
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        return {"status": "error", "detail": f"{type(e).__name__}: {str(e)[:200]}", "latency_ms": latency_ms}

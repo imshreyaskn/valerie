@@ -4,7 +4,7 @@ import type { Finding } from '../../types/domain';
 // ── Shared evidence dossier ───────────────────────────────────────────────────
 // The expandable forensic dossier rendered beneath a finding row. One
 // implementation for every surface that shows finding evidence (previously
-// duplicated verbatim between Findings and KnowledgeBase).
+// duplicated verbatim between Findings and Weaknesses).
 
 interface EvidenceDossierProps {
   finding: Finding;
@@ -15,7 +15,7 @@ export const EvidenceDossier: React.FC<EvidenceDossierProps> = ({ finding }) => 
     <div className="p-6 bg-linen/50 hairline-top space-y-4 font-mono text-xs">
       <div className="flex items-center justify-between pb-2 hairline-bottom">
         <span className="font-bold text-slate uppercase text-xs">
-          EVIDENCE DOSSIER // RISK SEVERITY SCORE: {finding.score?.toFixed(2) || '—'}
+          EVIDENCE DOSSIER · RISK SEVERITY SCORE: {finding.score?.toFixed(2) || '—'}
         </span>
         <span className="text-steel text-[11px]">
           TIMESTAMP: {new Date(finding.created_at || Date.now()).toLocaleString()}
@@ -24,15 +24,15 @@ export const EvidenceDossier: React.FC<EvidenceDossierProps> = ({ finding }) => 
 
       {finding.evidence && finding.evidence.length > 0 ? (
         <div className="space-y-2">
-          {finding.evidence.map((ev, evIdx) => (
-            <div key={evIdx} className="p-3 bg-ivory border border-hairline space-y-1">
-              <span className="font-bold text-slate uppercase text-[10px] block">[{ev.type}]:</span>
-              {ev.payload?.tokens != null && (
-                <p className="text-slate font-mono leading-relaxed whitespace-pre-wrap">{String(ev.payload.tokens)}</p>
-              )}
-              <p className="text-slate font-sans leading-relaxed">{ev.description}</p>
-            </div>
-          ))}
+          {finding.evidence.map((ev, evIdx) => {
+            const textContent = (ev as any).content || ev.description || (ev as any).tokens || (ev.payload?.tokens != null ? String(ev.payload.tokens) : '');
+            return (
+              <div key={evIdx} className="p-3 bg-ivory border border-hairline space-y-1">
+                <span className="font-bold text-slate uppercase text-[10px] block">[{ev.type}]:</span>
+                <p className="text-slate font-sans leading-relaxed whitespace-pre-wrap">{textContent || 'No text recorded'}</p>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="p-3 bg-ivory border border-hairline text-steel">

@@ -6,6 +6,10 @@ services:
       - ./src:/app/src
       - ./resources:/app/resources
     env_file: .env
+    environment:
+      - MONGO_URI=mongodb://valerie:${MONGO_PASSWORD:-localdev}@mongodb:27017/valerie_db?authSource=admin
+      - REDIS_URI=redis://redis:6379
+      - WORKER_URL=http://worker:8081/internal/run
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -27,6 +31,9 @@ services:
       - ./src:/app/src
       - ./resources:/app/resources
     env_file: .env
+    environment:
+      - MONGO_URI=mongodb://valerie:${MONGO_PASSWORD:-localdev}@mongodb:27017/valerie_db?authSource=admin
+      - REDIS_URI=redis://redis:6379
     ports:
       # Bound to loopback: never expose datastores/worker directly (audit M).
       - "127.0.0.1:8081:8081"

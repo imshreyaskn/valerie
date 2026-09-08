@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { PageHeader, ActionButton, StatusBadge } from '../components/ui';
+import React, { useState, useMemo, useEffect } from 'react';
+import { PageHeader, ActionButton, StatusBadge, ConfirmModal } from '../components/ui';
 import { useNavigate } from 'react-router-dom';
 import { getInvestigationCases, saveCases, setCaseDisposition, updateCaseNotes as persistCaseNotes, removeCase } from '../utils/investigationCases';
-import type { ForensicCaseItem, Disposition } from '../types/domain';
+import type { ForensicCaseItem, Disposition, Finding } from '../types/domain';
+import { api } from '../utils/api';
 import {
   GitBranch, Plus, Download, Trash2, Edit3, Check, FileText,
   Copy, Layers, Shield, AlertTriangle
@@ -15,15 +16,125 @@ export default function InvestigationBoard() {
   const [cases, setCases] = useState<ForensicCaseItem[]>(() => getInvestigationCases());
 
   // Sync to localStorage whenever cases change (single writer: shared util).
-  React.useEffect(() => {
+  useEffect(() => {
     saveCases(cases);
   }, [cases]);
+
+  // Dynamic backfill from Knowledge Base API if any pinned cases need hydration
+  useEffect(() => {
+    let active = true;
+    api.getFindings(100, 0).then((res) => {
+      if (!active || !res.findings || res.findings.length === 0) return;
+      const findingsMap = new Map<string, Finding>();
+      res.findings.forEach((f) => {
+        findingsMap.set(f.id, f);
+        if (f.task_id) findingsMap.set(f.task_id, f);
+      });
+
+      setCases((currentCases) => {
+        let changed = false;
+        const updated = currentCases.map((c) => {
+          const matchingFinding = findingsMap.get(c.id) || (c.taskId ? findingsMap.get(c.taskId) : undefined);
+          if (!matchingFinding) return c;
+
+          const evidence = Array.isArray(matchingFinding.evidence) ? matchingFinding.evidence : [];
+          const verdict = (matchingFinding as any).verdict || {};
+
+          const advPrompt =
+            (matchingFinding as any).adversarial_prompt ||
+            (matchingFinding as any).prompt ||
+            evidence.find((e: any) => e.type === 'adversarial_prompt' || e.type === 'prompt')?.content ||
+            evidence.find((e: any) => e.type === 'adversarial_prompt' || e.type === 'prompt')?.description ||
+            evidence.find((e: any) => e.tokens)?.tokens ||
+            evidence[0]?.content ||
+            evidence[0]?.description ||
+            verdict.prompt ||
+            c.adversarialPrompt;
+
+          const seedPrompt =
+            (matchingFinding as any).seed_prompt ||
+            (matchingFinding as any).original_prompt ||
+            evidence.find((e: any) => e.type === 'seed_prompt' || e.type === 'original_prompt')?.content ||
+            evidence.find((e: any) => e.type === 'seed_prompt' || e.type === 'original_prompt')?.description ||
+            c.seedPrompt;
+
+          const targetResponse =
+            (matchingFinding as any).target_response ||
+            (matchingFinding as any).response ||
+            evidence.find((e: any) => e.type === 'target_response' || e.type === 'response')?.content ||
+            evidence.find((e: any) => e.type === 'target_response' || e.type === 'response')?.description ||
+            evidence.map((e: any) => e.content || e.description).filter(Boolean).join('\n') ||
+            verdict.target_response ||
+            verdict.response ||
+            c.targetResponse;
+
+          const riskScore = Number(
+            matchingFinding.score ??
+            verdict.overall_risk_score ??
+            (matchingFinding as any).overall_risk_score ??
+            c.riskScore ??
+            (matchingFinding.severity === 'critical' ? 0.95 : 0.75)
+          );
+
+          const judgeReasoning =
+            verdict.safety_concern ||
+            verdict.reasoning ||
+            verdict.rationale ||
+            (matchingFinding as any).summary ||
+            (matchingFinding as any).rationale ||
+            c.judgeReasoning;
+
+          const rawVectors = verdict.vector_scores || {};
+          const vectorScores = {
+            directHarm: Number(rawVectors.direct_harm ?? rawVectors.directHarm ?? (riskScore >= 0.7 ? 0.85 : 0.15)),
+            toxicity: Number(rawVectors.toxicity ?? 0),
+            pii: Number(rawVectors.pii ?? rawVectors.pii_leakage ?? 0),
+            hallucination: Number(rawVectors.hallucination ?? 0),
+            policyBreach: Number(rawVectors.policy_breach ?? rawVectors.policyBreach ?? (riskScore >= 0.5 ? 0.9 : 0.1)),
+          };
+
+          const isDiff =
+            c.adversarialPrompt !== advPrompt ||
+            c.targetResponse !== targetResponse ||
+            c.riskScore !== riskScore ||
+            c.judgeReasoning !== judgeReasoning;
+
+          if (isDiff) {
+            changed = true;
+            return {
+              ...c,
+              adversarialPrompt: advPrompt,
+              seedPrompt,
+              targetResponse,
+              riskScore,
+              judgeReasoning,
+              vectorScores,
+            };
+          }
+          return c;
+        });
+
+        if (changed) {
+          saveCases(updated);
+          return updated;
+        }
+        return currentCases;
+      });
+    }).catch((err) => {
+      console.warn('Could not hydrate pinned findings from knowledge API:', err);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const [activeTab, setActiveTab] = useState<'canvas' | 'compare'>('canvas');
   const [dispositionFilter, setDispositionFilter] = useState<string>('ALL');
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
   const [tempNotes, setTempNotes] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [unpinTargetId, setUnpinTargetId] = useState<string | null>(null);
 
   // Filtered cases
   const filteredCases = useMemo(() => {
@@ -48,9 +159,10 @@ export default function InvestigationBoard() {
     setEditingNotesId(null);
   };
 
-  const handleRemoveCase = (id: string) => {
-    if (!confirm('Remove this pinned evidence specimen from the investigation board?')) return;
-    setCases(removeCase(id));
+  const handleConfirmRemoveCase = () => {
+    if (!unpinTargetId) return;
+    setCases(removeCase(unpinTargetId));
+    setUnpinTargetId(null);
   };
 
   const handleCopySpecimen = (id: string, text: string) => {
@@ -61,7 +173,7 @@ export default function InvestigationBoard() {
 
   const handleExportJSON = () => {
     const report = {
-      platform: 'Valerie OS // AI Security Intelligence Workstation',
+      platform: 'Valerie OS · AI Security Intelligence Workstation',
       document: 'Forensic Investigation Audit Dossier',
       generatedAt: new Date().toISOString(),
       summary: {
@@ -81,7 +193,7 @@ export default function InvestigationBoard() {
   };
 
   const handleExportMarkdown = () => {
-    let md = `# VALERIE OS // FORENSIC INVESTIGATION AUDIT REPORT\n`;
+    let md = `# VALERIE OS · FORENSIC INVESTIGATION AUDIT REPORT\n`;
     md += `**Generated:** ${new Date().toLocaleString()}\n`;
     md += `**Total Pinned Specimens:** ${totalCases} | **Confirmed Breaches:** ${confirmedCount} | **Mean Risk:** ${meanRisk}\n\n`;
     md += `---\n\n`;
@@ -325,11 +437,11 @@ export default function InvestigationBoard() {
           <p className="text-[11px] text-steel mt-1 max-w-md mx-auto font-sans">
             Pin findings from the Findings Explorer to assemble forensic case studies and generate compliance reports.
           </p>
-          <div className="mt-4">
+          <div className="mt-5 flex items-center justify-center gap-3">
             <ActionButton variant="primary" onClick={() => navigate('/dashboard/findings')}>
               PIN FROM FINDINGS EXPLORER →
             </ActionButton>
-            <ActionButton variant="ghost" onClick={() => navigate('/dashboard')}>
+            <ActionButton variant="secondary" onClick={() => navigate('/dashboard')}>
               EXPLORE MISSION CONTROL →
             </ActionButton>
           </div>
@@ -372,7 +484,7 @@ export default function InvestigationBoard() {
                     </select>
 
                     <button
-                      onClick={() => handleRemoveCase(c.id)}
+                      onClick={() => setUnpinTargetId(c.id)}
                       className="p-1.5 text-steel hover:text-maroon hover:bg-maroon/10 border border-transparent hover:border-maroon/30 transition-colors cursor-pointer"
                       title="Unpin Case"
                     >
@@ -397,8 +509,8 @@ export default function InvestigationBoard() {
                   </div>
                   <div>
                     <span className="text-[9px] font-mono text-taupe uppercase block font-bold">RISK INDEX</span>
-                    <span className={`font-mono text-xs font-bold tabular-nums block mt-0.5 ${c.riskScore >= 0.7 ? 'text-maroon' : 'text-slate'}`}>
-                      {c.riskScore.toFixed(2)} (CRITICAL)
+                    <span className={`font-mono text-xs font-bold tabular-nums block mt-0.5 ${c.riskScore >= 0.7 ? 'text-maroon' : c.riskScore >= 0.4 ? 'text-camel' : 'text-slate'}`}>
+                      {c.riskScore.toFixed(2)} ({c.riskScore >= 0.8 ? 'CRITICAL' : c.riskScore >= 0.6 ? 'HIGH' : c.riskScore >= 0.35 ? 'MEDIUM' : 'LOW'})
                     </span>
                   </div>
                 </div>
@@ -622,6 +734,19 @@ export default function InvestigationBoard() {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Case Unpinning */}
+      <ConfirmModal
+        isOpen={Boolean(unpinTargetId)}
+        onClose={() => setUnpinTargetId(null)}
+        onConfirm={handleConfirmRemoveCase}
+        title="REMOVE PINNED SPECIMEN"
+        subtitle="INVESTIGATION BOARD · DOSSIER MANAGEMENT"
+        description="Are you sure you want to remove this pinned evidence specimen from the active investigation board? The underlying finding in the Findings Explorer remains untouched."
+        confirmLabel="REMOVE SPECIMEN"
+        cancelLabel="CANCEL"
+        variant="warning"
+      />
     </section>
   );
 }

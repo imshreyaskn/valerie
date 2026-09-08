@@ -34,6 +34,16 @@ async def get_findings(
     findings = await cursor.to_list(length=limit)
     for f in findings:
         f.pop("_id", None)
+        verdict = f.get("verdict") or {}
+        evidence = f.get("evidence") or []
+        if "score" not in f or f["score"] == 0:
+            f["score"] = verdict.get("overall_risk_score", 0.0)
+        if not f.get("adversarial_prompt"):
+            f["adversarial_prompt"] = next((e.get("content") or e.get("description") for e in evidence if e.get("type") == "adversarial_prompt"), "")
+        if not f.get("target_response"):
+            f["target_response"] = next((e.get("content") or e.get("description") for e in evidence if e.get("type") == "target_response"), "")
+        if not f.get("original_prompt"):
+            f["original_prompt"] = next((e.get("content") or e.get("description") for e in evidence if e.get("type") == "seed_prompt"), "")
     return {"findings": findings}
 
 @router.get("/weaknesses")

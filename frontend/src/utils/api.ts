@@ -54,14 +54,17 @@ export const api = {
   createEndpoint: (data: CreateEndpointPayload): Promise<Endpoint> =>
     fetchWithAuth<Endpoint>('/endpoints/', { method: 'POST', body: JSON.stringify(data) }),
   deleteEndpoint: (id: string): Promise<void> => fetchWithAuth<void>(`/endpoints/${id}`, { method: 'DELETE' }),
-  testEndpoint: (id: string): Promise<{ status: string; detail?: string }> =>
-    fetchWithAuth<{ status: string; detail?: string }>(`/endpoints/${id}/test`, { method: 'POST' }),
+  testEndpoint: (id: string): Promise<{ status: string; detail?: string; latency_ms?: number }> =>
+    fetchWithAuth<{ status: string; detail?: string; latency_ms?: number }>(`/endpoints/${id}/test`, { method: 'POST' }),
 
   // Campaign / Run Pipelines
   listRuns: (limit = 50, offset = 0): Promise<{ runs: Run[] }> =>
     fetchWithAuth<{ runs: Run[] }>(`/runs/?limit=${limit}&offset=${offset}`),
+  getRun: (runId: string): Promise<Run> => fetchWithAuth<Run>(`/runs/${runId}`),
   createRun: (config: CreateRunPayload): Promise<{ run_id: string; status: string }> =>
     fetchWithAuth<{ run_id: string; status: string }>('/runs/', { method: 'POST', body: JSON.stringify(config) }),
+  cancelRun: (runId: string): Promise<{ status: string; run_id: string; message: string }> =>
+    fetchWithAuth<{ status: string; run_id: string; message: string }>(`/runs/${runId}/cancel`, { method: 'POST' }),
   getResults: (runId: string): Promise<RunResultsResponse> =>
     fetchWithAuth<RunResultsResponse>(`/runs/${runId}/results`),
   getStreamToken: (runId: string): Promise<{ token: string; expires_in_seconds: number }> =>

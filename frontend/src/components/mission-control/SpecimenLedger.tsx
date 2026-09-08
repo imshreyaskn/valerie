@@ -19,7 +19,77 @@ interface SpecimenLedgerProps {
 type SortField = 'index' | 'risk_score' | 'last_updated' | 'technique' | 'status';
 type SortOrder = 'asc' | 'desc';
 
-export const SpecimenLedger: React.FC<SpecimenLedgerProps> = ({
+interface TaskGridCardProps {
+  task: LiveTask;
+  index: number;
+  isSelected: boolean;
+  onSelectTask: (taskId: string) => void;
+}
+
+const TaskGridCard = React.memo<TaskGridCardProps>(
+  ({ task, index, isSelected, onSelectTask }) => {
+    return (
+      <div
+        onClick={() => onSelectTask(task.task_id)}
+        className={`interactive-card p-4 bg-ivory border transition-all cursor-pointer select-none space-y-3 ${
+          isSelected
+            ? 'border-slate ring-2 ring-slate'
+            : 'border-hairline hover:border-steel/60'
+        }`}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelectTask(task.task_id);
+          }
+        }}
+      >
+        <div className="flex items-center justify-between font-mono text-xs">
+          <span className="text-steel font-bold">#{String(index + 1).padStart(2, '0')}</span>
+          <TaskStateBadge status={task.status} isBreakthrough={task.is_breakthrough} />
+        </div>
+
+        <div>
+          <p className="font-mono text-xs font-bold text-slate uppercase truncate">
+            {task.harm_type.replace(/_/g, ' ')}
+          </p>
+          <p className="font-mono text-[10px] text-steel uppercase truncate">
+            {task.technique.replace(/_/g, ' ')}
+          </p>
+        </div>
+
+        <div className="p-2.5 bg-linen/50 border border-hairline font-mono text-[11px] space-y-1">
+          <p className="text-steel truncate">
+            <span className="text-taupe uppercase text-[9px] mr-1">SEED:</span>
+            {task.prompt || '—'}
+          </p>
+          <p className={`truncate font-medium ${task.is_breakthrough ? 'text-maroon font-semibold' : 'text-slate'}`}>
+            <span className="text-maroon uppercase text-[9px] mr-1">MUT:</span>
+            {task.adversarial_prompt || task.prompt || '—'}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between font-mono text-xs pt-1 hairline-top">
+          <span className="text-taupe uppercase text-[10px]">ITER {task.iterations || 1}</span>
+          <span className={`font-bold text-sm tabular-nums ${
+            task.is_breakthrough || task.risk_score >= 0.7 ? 'text-maroon' : task.risk_score >= 0.4 ? 'text-camel' : 'text-slate'
+          }`}>
+            {task.risk_score.toFixed(2)} <span className="text-[10px] text-taupe font-normal uppercase">RISK</span>
+          </span>
+        </div>
+      </div>
+    );
+  },
+  (prev, next) =>
+    prev.task === next.task &&
+    prev.isSelected === next.isSelected &&
+    prev.index === next.index
+);
+
+TaskGridCard.displayName = 'TaskGridCard';
+
+export const SpecimenLedger: React.FC<SpecimenLedgerProps> = React.memo(({
   tasks,
   selectedTaskId,
   onSelectTask,
@@ -48,7 +118,6 @@ export const SpecimenLedger: React.FC<SpecimenLedgerProps> = ({
     return [...tasks].sort((a, b) => {
       let comparison = 0;
       if (sortField === 'index') {
-        // Dispatch order: creation timestamp, falling back to insertion order.
         comparison = (a.created_at || '').localeCompare(b.created_at || '');
       } else if (sortField === 'risk_score') {
         comparison = (a.risk_score || 0) - (b.risk_score || 0);
@@ -110,62 +179,15 @@ export const SpecimenLedger: React.FC<SpecimenLedgerProps> = ({
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 py-4" role="region" aria-label="Specimen Grid">
-        {sortedTasks.map((task, idx) => {
-          const isSelected = task.task_id === selectedTaskId;
-          return (
-            <div
-              key={task.task_id}
-              onClick={() => onSelectTask(task.task_id)}
-              className={`p-4 bg-ivory border transition-all cursor-pointer select-none space-y-3 ${
-                isSelected
-                  ? 'border-slate ring-2 ring-slate'
-                  : 'border-hairline hover:border-steel/60 hover:bg-linen/20'
-              }`}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onSelectTask(task.task_id);
-                }
-              }}
-            >
-              <div className="flex items-center justify-between font-mono text-xs">
-                <span className="text-steel font-bold">#{String(idx + 1).padStart(2, '0')}</span>
-                <TaskStateBadge status={task.status} isBreakthrough={task.is_breakthrough} />
-              </div>
-
-              <div>
-                <p className="font-mono text-xs font-bold text-slate uppercase truncate">
-                  {task.harm_type.replace(/_/g, ' ')}
-                </p>
-                <p className="font-mono text-[10px] text-steel uppercase truncate">
-                  {task.technique.replace(/_/g, ' ')}
-                </p>
-              </div>
-
-              <div className="p-2.5 bg-linen/50 border border-hairline font-mono text-[11px] space-y-1">
-                <p className="text-steel truncate">
-                  <span className="text-taupe uppercase text-[9px] mr-1">SEED:</span>
-                  {task.prompt || '—'}
-                </p>
-                <p className={`truncate font-medium ${task.is_breakthrough ? 'text-maroon font-semibold' : 'text-slate'}`}>
-                  <span className="text-maroon uppercase text-[9px] mr-1">MUT:</span>
-                  {task.adversarial_prompt || task.prompt || '—'}
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between font-mono text-xs pt-1 hairline-top">
-                <span className="text-taupe uppercase text-[10px]">ITER {task.iterations || 1}</span>
-                <span className={`font-bold text-sm tabular-nums ${
-                  task.is_breakthrough || task.risk_score >= 0.7 ? 'text-maroon' : task.risk_score >= 0.4 ? 'text-camel' : 'text-slate'
-                }`}>
-                  {task.risk_score.toFixed(2)} <span className="text-[10px] text-taupe font-normal uppercase">RISK</span>
-                </span>
-              </div>
-            </div>
-          );
-        })}
+        {sortedTasks.map((task, idx) => (
+          <TaskGridCard
+            key={task.task_id}
+            task={task}
+            index={idx}
+            isSelected={task.task_id === selectedTaskId}
+            onSelectTask={onSelectTask}
+          />
+        ))}
       </div>
     );
   }
@@ -238,7 +260,7 @@ export const SpecimenLedger: React.FC<SpecimenLedgerProps> = ({
               isSelected={task.task_id === selectedTaskId}
               density={density}
               onClick={() => onSelectTask(task.task_id)}
-              onOpenDiff={() => onOpenDiff?.(task.task_id)}
+              onOpenDiff={onOpenDiff ? () => onOpenDiff(task.task_id) : undefined}
             />
           ))}
         </div>
@@ -265,4 +287,6 @@ export const SpecimenLedger: React.FC<SpecimenLedgerProps> = ({
       )}
     </div>
   );
-};
+});
+
+SpecimenLedger.displayName = 'SpecimenLedger';

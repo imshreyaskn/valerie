@@ -35,25 +35,33 @@ export interface Run {
   endpoint_id?: string;
   attacker_model?: string;
   judge_model?: string;
+  error_message?: string;
 }
 
 export interface CreateRunPayload {
   domain: string;
   endpoint_id: string;
+  judge_endpoint_id?: string;
   attacker_model: string;
   judge_model: string;
+  target_model?: string;
+  target_api_key?: string;
   attacker_api_key?: string;
   judge_api_key?: string;
+  techniques?: string[];
   selected_techniques: string[];
   max_iterations: number;
   risk_threshold: number;
+  sample_size?: number;
 }
 
 export type FindingSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
 export interface EvidenceItem {
   type: string;
-  description: string;
+  description?: string;
+  content?: string;
+  tokens?: string;
   payload?: Record<string, unknown>;
   timestamp?: string;
 }
@@ -236,6 +244,7 @@ export interface RunStats {
   domain?: string;
   endpoint_name?: string;
   started_at?: string;
+  completed_at?: string;
 }
 
 export interface IntelligenceAlert {

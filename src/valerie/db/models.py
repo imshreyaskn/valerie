@@ -30,6 +30,7 @@ class PipelineRun(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     user_id: str
     endpoint_id: str
+    judge_endpoint_id: str | None = None
     status: str
     domain: str
     harm_types: list[str]

@@ -13,12 +13,15 @@ class PipelineRunConfig(BaseModel):
     judge_model: str
     attacker_model: str
 
+    judge_endpoint_id: str | None = None
+    target_model: str | None = None
     target_api_key: str | None = None
     attacker_api_key: str | None = None
     judge_api_key: str | None = None
     max_iterations: int = Field(default=3, ge=1, le=20)
     risk_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     max_concurrency: int = Field(default=10, ge=1, le=50)
+    sample_size: int | None = None
 
 builder = StateGraph(PipelineState)
 builder.add_node("load_prompts",  load_domain_prompts)  # type: ignore

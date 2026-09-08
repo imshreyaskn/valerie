@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../utils/api';
 import { Trash2, Copy, Check, Key, X, Plus } from 'lucide-react';
-import { PageHeader, ActionButton } from '../components/ui';
+import { PageHeader, ActionButton, ConfirmModal } from '../components/ui';
 import { TelemetryRow } from '../components/ui/TelemetryRow';
 import type { ApiKeyItem, CreatedApiKey } from '../types/domain';
 
@@ -14,6 +14,8 @@ export default function ApiKeys() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [revokeTargetKey, setRevokeTargetKey] = useState<ApiKeyItem | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
 
   const loadKeys = () => {
     setLoading(true);
@@ -49,15 +51,19 @@ export default function ApiKeys() {
     }
   };
 
-  const handleRevoke = async (keyId: string) => {
-    if (!confirm('Are you sure you want to permanently revoke this API key? Automated CI/CD pipelines using this key will immediately fail.')) return;
+  const handleConfirmRevoke = async () => {
+    if (!revokeTargetKey) return;
+    setIsRevoking(true);
     setActionError(null);
     try {
-      await api.revokeKey(keyId);
+      await api.revokeKey(revokeTargetKey.id);
+      setRevokeTargetKey(null);
       loadKeys();
     } catch (err) {
       console.error(err);
       setActionError('Key revocation failed. The key is still active — please retry.');
+    } finally {
+      setIsRevoking(false);
     }
   };
 
@@ -234,7 +240,7 @@ export default function ApiKeys() {
                   </div>
                   <div className="p-3 md:p-4 text-left md:text-right">
                     <button
-                      onClick={() => handleRevoke(k.id)}
+                      onClick={() => setRevokeTargetKey(k)}
                       className="p-1.5 text-steel hover:text-maroon hover:bg-maroon/10 border border-transparent hover:border-maroon/30 transition-colors cursor-pointer"
                       title="Revoke Key"
                     >
@@ -260,6 +266,20 @@ export default function ApiKeys() {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for Key Revocation */}
+      <ConfirmModal
+        isOpen={Boolean(revokeTargetKey)}
+        onClose={() => setRevokeTargetKey(null)}
+        onConfirm={handleConfirmRevoke}
+        title="REVOKE API ACCESS KEY"
+        subtitle="CREDENTIAL SECURITY · PERMANENT ACTION"
+        description={`Are you sure you want to permanently revoke API key "${revokeTargetKey?.label}" (${revokeTargetKey?.key_prefix}••••)? Any CI/CD pipelines or scripts using this key will immediately fail.`}
+        confirmLabel="REVOKE KEY"
+        cancelLabel="CANCEL"
+        variant="danger"
+        isPending={isRevoking}
+      />
     </section>
   );
 }
