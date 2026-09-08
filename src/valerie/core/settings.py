@@ -15,7 +15,7 @@ Architecture Notes:
 - Nested models provide logical grouping
 """
 
-from pydantic import Field, field_validator, ValidationError
+from pydantic import Field, field_validator, model_validator, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
 import sys
@@ -228,7 +228,7 @@ class Settings(BaseSettings):
         description="Shared secret for API to Worker communication. REQUIRED in production."
     )
 
-    allowed_origins: list[str] = Field(
+    allowed_origins: list[str] | str = Field(
         default=[
             "http://localhost:5173",
             "http://127.0.0.1:5173",
@@ -240,19 +240,30 @@ class Settings(BaseSettings):
         description="Allowed CORS origins"
     )
 
-    @field_validator('allowed_origins', mode='before')
-    @classmethod
-    def parse_allowed_origins(cls, v):
-        if isinstance(v, str):
-            v = v.strip()
-            if v.startswith('[') and v.endswith(']'):
+    @model_validator(mode="after")
+    def parse_allowed_origins(self):
+        if isinstance(self.allowed_origins, str):
+            v = self.allowed_origins.strip()
+            if not v:
+                self.allowed_origins = [
+                    "http://localhost:5173",
+                    "http://127.0.0.1:5173",
+                    "http://localhost:3000",
+                    "https://valerie-beta.vercel.app",
+                    "https://alethia.vercel.app",
+                ]
+                return self
+            if v.startswith("[") and v.endswith("]"):
                 import json
                 try:
-                    return json.loads(v)
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        self.allowed_origins = parsed
+                        return self
                 except Exception:
                     pass
-            return [origin.strip() for origin in v.split(',') if origin.strip()]
-        return v
+            self.allowed_origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+        return self
 
     allow_local_llm_targets: bool = Field(
         default=False,
