@@ -211,12 +211,12 @@ async def create_run(
 def _normalize_run(run: dict) -> dict:
     run.pop("_id", None)
     res = run.get("results") or {}
-    if "avg_risk_score" not in run:
-        run["avg_risk_score"] = res.get("avg_risk_score", 0.0)
-    if "successful_attacks" not in run:
-        run["successful_attacks"] = res.get("successful_attacks", 0)
-    if "total_tasks" not in run:
-        run["total_tasks"] = res.get("total_tasks", 0)
+    if run.get("avg_risk_score") is None:
+        run["avg_risk_score"] = res.get("avg_risk_score", 0.0) or 0.0
+    if run.get("successful_attacks") is None:
+        run["successful_attacks"] = res.get("successful_attacks", 0) or 0
+    if run.get("total_tasks") is None:
+        run["total_tasks"] = res.get("total_tasks", 0) or 0
     return run
 
 @router.get("/")
