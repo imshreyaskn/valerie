@@ -1,8 +1,6 @@
 <div align="center">
 
 <pre>
-
-  
 ⣠⢠⡤⡤⠠⢤⢠⡀⡀⠀⠀⠒⡀⠀⡀⠒⠀⠀⠀⣀⣠⠄⠠⣄⣀⣤⡄
 ⠈⠳⣿⡤⠤⡏⠀⠉⠙⠰⣄⠀⢰⢠⠃⢀⡤⠎⠋⠉⠀⢹⠤⢼⣭⠍⠀
 ⠀⠀⠐⢷⡅⠑⢒⡤⠤⠀⡈⠠⢀⣌⡰⠉⡀⠀⠠⢄⡒⠓⢨⣿⠂⠀⠀
@@ -12,6 +10,8 @@
 ⠀⠀⠀⠀⠀⠘⣿⣇⡬⡌⢀⡟⠀⠀⠀⢷⠀⠠⢣⣠⢧⠂⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⢲⠛⠈⠈⠀⠀⠀⠀⠈⠉⠐⢉⡏⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠰⡛⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠾⠄⠀⠀⠀⠀⠀⠀
+
+</pre>
 
 <h1>Valerie</h1>
 
@@ -28,32 +28,13 @@ detecting safety failures, and preserving evidence for analysis.
 
 </div>
 
-<h1>Valerie</h1>
-
-<p><b>LLM Red Teaming &amp; Safety Evaluation</b></p>
-
-<p>
-  An automated pipeline for generating adversarial prompts, evaluating LLM responses,
-  detecting safety failures, and preserving evidence for analysis.
-</p>
-
-<br />
-
-<a href="https://valerie-beta.vercel.app/">
-  <img src="https://img.shields.io/badge/Live_Dashboard-valerie--beta.vercel.app-blue?style=for-the-badge&color=CBA0A6" alt="Live Dashboard" />
-</a>
-
-<br />
-
-</div>
-
 ---
 
 ## Overview
 
-Valerie is a system for automated red teaming and safety evaluation of Large Language Models.
+Valerie is an automated system for red teaming and safety evaluation of large language models.
 
-A campaign generates adversarial prompts, sends them to a target model, evaluates the resulting responses, and stores the evidence for later analysis.
+A campaign generates adversarial prompts, sends them to a target model, evaluates the responses, and stores the resulting evidence for analysis.
 
 The system combines:
 
@@ -61,18 +42,15 @@ The system combines:
 * Multi-provider LLM routing
 * Automated response evaluation
 * Evidence hashing and integrity checks
-* Campaign-level clustering
-* Anomaly detection
+* Campaign-level clustering and anomaly detection
 * Risk visualization
-* Real-time execution updates
+* Real-time campaign execution
 
-The focus is on making LLM evaluations **repeatable, observable, and traceable** rather than treating a jailbreak attempt as an isolated prompt.
+The focus is on making LLM evaluation **repeatable, observable, and traceable** rather than treating each attack as an isolated prompt-response pair.
 
 ---
 
 ## How It Works
-
-A Valerie campaign follows a pipeline from attack generation to analysis:
 
 ```mermaid
 flowchart LR
@@ -84,19 +62,23 @@ flowchart LR
     F --> G[Dashboard]
 ```
 
-A campaign can be configured around a domain, attack strategy, target model, evaluation model, and concurrency.
+A campaign moves through a defined pipeline:
 
-The resulting run is persisted and streamed to the frontend while it executes.
+1. Configure a campaign and target model
+2. Generate adversarial attacks
+3. Execute attacks against the target
+4. Evaluate target responses
+5. Persist prompts, responses, and evaluation results
+6. Analyze patterns across the campaign
+7. Stream results to the dashboard
 
 ---
 
 ## Attack Generation
 
-Valerie uses adversarial prompting techniques to generate inputs intended to stress the target model's safety boundaries.
+Valerie generates adversarial prompts using different attack techniques and domain-specific resources.
 
-Prompt resources are organized by domain and stored under `resources/`.
-
-The system supports domain-specific evaluation across areas such as:
+Supported domains currently include:
 
 * General
 * BFSI
@@ -104,20 +86,18 @@ The system supports domain-specific evaluation across areas such as:
 * Pharmacy
 * Legal
 * HR
-* Ecommerce
+* E-commerce
 
-The attack generation layer is separated from the target model so that different attacker strategies and target models can be evaluated independently.
+Domain-specific prompt resources are maintained under `resources/`.
+
+The attacker model is separated from the target model so that attack generation and target evaluation remain independent.
 
 ---
 
 ## Evaluation Pipeline
 
-After an adversarial prompt is generated, Valerie sends it to the configured target model.
-
-The response is then evaluated by the evaluation layer.
-
 ```mermaid
-flowchart TD
+flowchart LR
     A[Generated Prompt] --> B[Target Model]
     B --> C[Target Response]
     C --> D[Evaluation Model]
@@ -126,7 +106,7 @@ flowchart TD
     F --> G[Evidence Store]
 ```
 
-The evaluation stage tracks signals such as:
+Each target response can be evaluated for characteristics such as:
 
 * Safety violations
 * Prompt injection success
@@ -134,52 +114,51 @@ The evaluation stage tracks signals such as:
 * Risk level
 * Evaluation confidence
 
-Low-confidence results can be surfaced for further inspection rather than being treated as definitive.
+The evaluation stage is intentionally separated from attack generation so that the system can reason about the target response independently of how the attack was created.
 
 ---
 
 ## Campaign Architecture
 
-Valerie separates request handling from long-running campaign execution.
-
 ```mermaid
-flowchart TB
-    U[User] --> FE[React Dashboard]
-
-    FE --> API[FastAPI API]
+flowchart TD
+    U[User] --> F[React Dashboard]
+    F --> API[FastAPI API]
 
     API --> DB[(MongoDB)]
     API --> R[(Redis)]
 
     R --> W[Worker]
+    W --> L[LangGraph Pipeline]
 
-    W --> G[LangGraph Pipeline]
+    L --> AG[Attack Generation]
+    L --> T[Target Execution]
+    L --> EV[Response Evaluation]
+    L --> FO[Forensics]
+    L --> IN[Intelligence]
 
-    G --> ATTACK[Attack Generation]
-    G --> TARGET[Target LLM]
-    G --> JUDGE[Evaluation]
-
-    G --> FORENSICS[Forensics]
-    G --> INTEL[Intelligence]
-
-    FORENSICS --> DB
-    INTEL --> DB
+    FO --> DB
+    IN --> DB
 
     W --> R
-    R --> STREAM[SSE Stream]
-
-    STREAM --> FE
+    R --> SSE[SSE Stream]
+    SSE --> F
 ```
 
-This separation allows the API to remain responsive while the worker handles the expensive LLM evaluation workload.
+The application is split into several responsibilities:
+
+* **Frontend** — campaign configuration, monitoring, visualization
+* **API** — campaign management and client-facing endpoints
+* **Worker** — asynchronous campaign execution
+* **Redis** — event and execution coordination
+* **MongoDB** — persistent campaign and evidence storage
+* **LangGraph** — orchestration of the evaluation pipeline
 
 ---
 
 ## LangGraph Pipeline
 
-The campaign workflow is represented as typed state and executed through LangGraph.
-
-At a high level:
+The campaign executor is organized as a stateful graph:
 
 ```mermaid
 flowchart LR
@@ -190,19 +169,18 @@ flowchart LR
     E --> F[Analyze Result]
     F --> G[Publish Event]
     G --> H[Next Attack]
+    H --> B
 ```
 
-The graph keeps campaign state separate from the API layer and makes individual stages easier to retry, observe, and extend.
+The pipeline maintains typed state throughout execution.
+
+This allows individual stages to remain separated while still passing campaign context between them.
 
 ---
 
 ## Forensic Evidence
 
-Valerie does more than store a final risk score.
-
-Prompts and responses are hashed when they enter the forensic layer using SHA-256.
-
-The resulting evidence can be linked into a hash chain so that modifications to previously recorded data can be detected.
+Valerie records evidence throughout the attack lifecycle.
 
 ```mermaid
 flowchart LR
@@ -219,152 +197,182 @@ The forensic layer tracks:
 * Prompt hashes
 * Response hashes
 * Evidence provenance
-* Chain relationships
+* Hash-chain relationships
 * Audit events
+* Campaign relationships
 
-This makes an evaluation finding inspectable instead of reducing it to a single database field.
+Evidence records are linked so that an individual result can be traced back through the campaign execution.
+
+### Why the forensic layer matters
+
+A red-team result is more useful when you can answer:
+
+```text
+Attack
+  ↓
+Prompt
+  ↓
+Target Response
+  ↓
+Evaluation
+  ↓
+Risk
+  ↓
+Evidence
+```
+
+Instead of only recording that an attack succeeded or failed, Valerie preserves the information needed to inspect how that result was produced.
 
 ---
 
 ## Intelligence Layer
 
-Large campaigns can generate a significant number of individual results.
+Valerie performs analysis across campaign results to identify patterns that may not be obvious from individual attacks.
 
-Valerie includes an analysis layer for identifying patterns across those results.
+Current analysis includes:
 
-### Clustering
+### DBSCAN Clustering
 
-DBSCAN is used to group similar attack or response patterns without requiring the number of clusters to be known beforehand.
+Groups related attack or result patterns based on their feature representations.
 
-### Anomaly Detection
+### Isolation Forest
 
-Isolation Forest identifies results that differ significantly from the rest of the campaign.
-
-These outliers can be inspected separately for unusual model behavior.
+Used for identifying potentially unusual or anomalous campaign results.
 
 ### Risk Analysis
 
-Campaign results can be aggregated into risk matrices and visualized through the dashboard.
+Results can be viewed across dimensions such as:
 
-This allows comparisons across:
+* Attack technique
+* Domain
+* Target model
+* Risk category
+* Campaign
 
-* Attack techniques
-* Domains
-* Models
-* Risk categories
-* Campaigns
+This provides a campaign-level view rather than evaluating every attack independently.
 
 ---
 
 ## Real-Time Execution
 
-Campaign progress is streamed from the backend to the frontend using Server-Sent Events.
+Campaign execution can be streamed to the dashboard as it happens.
 
 ```mermaid
 sequenceDiagram
     participant UI as Dashboard
     participant API as FastAPI
-    participant Redis as Redis
-    participant Worker as Worker
-    participant LLM as Target / Judge
+    participant R as Redis
+    participant W as Worker
+    participant L as LLM
 
-    UI->>API: Start campaign
-    API->>Redis: Queue campaign
-    Redis->>Worker: Dispatch job
-
-    loop Campaign
-        Worker->>LLM: Generate / evaluate
-        LLM-->>Worker: Response
-        Worker->>Redis: Publish event
-        Redis-->>API: Campaign event
-        API-->>UI: SSE update
-    end
-
-    Worker->>Redis: Campaign complete
-    Redis-->>API: Final event
-    API-->>UI: Completion
+    UI->>API: Start Campaign
+    API->>R: Queue Campaign
+    R->>W: Dispatch Job
+    W->>L: Execute Attack
+    L-->>W: Target Response
+    W->>R: Publish Result
+    R-->>API: Campaign Event
+    API-->>UI: SSE Update
 ```
 
-This allows the dashboard to show campaign progress without repeatedly polling the API.
+This keeps long-running campaign execution outside the request-response lifecycle while allowing the frontend to receive progress updates.
 
 ---
 
 ## Dashboard
 
-The frontend provides a visual interface for monitoring and investigating campaigns.
-
-It includes:
+The React dashboard provides views for:
 
 * Campaign monitoring
 * Attack-chain visualization
 * Live execution updates
 * Risk heatmaps
-* Intelligence views
+* Intelligence analysis
 * Evaluation results
 
-React Flow is used for graph-based visualizations, while Zustand manages frontend state.
+The attack flow is visualized using React Flow, while Zustand manages frontend state.
 
 ---
 
 ## Security
 
-Valerie includes several controls around the API and evaluation pipeline:
+Valerie includes several safeguards around API access and application configuration.
 
-* API-key authentication
-* Constant-time credential comparison
-* Owner-based resource isolation
-* Input validation
-* Template sanitization
-* Environment-based secret configuration
-* Startup validation for missing configuration
-* Rate-limiting infrastructure
+### API Authentication
 
-Secrets should be supplied through environment variables and should never be committed to the repository.
+API keys are compared using constant-time comparison to reduce timing-based leakage.
+
+### Resource Isolation
+
+Campaign resources are associated with their owners so that one user cannot arbitrarily access another user's resources.
+
+### Input Validation
+
+Incoming configuration and request data are validated before execution.
+
+### Template Sanitization
+
+Prompt templates are checked and sanitized before being used by the execution pipeline.
+
+### Secret Management
+
+LLM credentials and application secrets are loaded from environment configuration rather than being embedded in source code.
+
+### Configuration Validation
+
+Required configuration is validated during application startup.
+
+### Rate Limiting
+
+The application includes infrastructure for controlling request frequency.
+
+> Never commit `.env` files or real API keys to the repository.
 
 ---
 
 ## Reliability
 
-Campaign execution involves external LLM APIs, so failures are expected.
+The system is designed to handle long-running and distributed campaign execution.
 
-The backend includes:
+Current mechanisms include:
 
-* Retry handling with exponential backoff
-* Redis-based decoupling
-* Worker separation
+* Exponential-backoff retries
+* Redis-based execution decoupling
+* Separate worker processes
 * Health endpoints
 * Connection pooling
 * Error tracking
-* Dead-letter handling for failed tasks
-* Graceful degradation paths
+* Dead-letter handling
+* Graceful degradation
+* Demo mode
 
-The goal is to prevent a single failed model request from taking down an entire campaign.
+The worker architecture keeps campaign execution separate from the API process, allowing the API to remain responsive while campaigns run.
 
 ---
 
 ## Architecture Patterns
 
-A few architectural decisions are central to Valerie.
+Valerie uses several patterns throughout the system.
 
-### Event-driven execution
+### Event-Driven Execution
 
-Redis separates API requests from campaign execution and provides a communication path between workers and consumers.
+Redis is used for communication between the API, workers, and real-time event stream.
 
-### Typed pipeline state
+### Typed Pipeline State
 
-The LangGraph workflow uses typed state to make transitions between campaign stages explicit.
+LangGraph stages share structured state rather than passing unstructured values between functions.
 
-### Separate read and write paths
+### Separate Read / Write Paths
 
-Campaign execution writes results while the dashboard primarily reads and streams those results.
+Campaign execution and result retrieval are kept conceptually separate to reduce coupling between the execution pipeline and dashboard queries.
 
-### Confidence tracking
+### Confidence Tracking
 
-Evaluation confidence is retained so uncertain model judgments can be identified rather than hidden behind a binary result.
+Evaluation results can carry confidence information alongside the result itself.
 
-### Evidence-first design
+### Evidence-First Design
 
-The underlying prompt and response are retained alongside the evaluation instead of storing only the final classification.
+Evidence is persisted as part of the evaluation workflow rather than being reconstructed later.
 
 ---
 
@@ -372,65 +380,69 @@ The underlying prompt and response are retained alongside the evaluation instead
 
 ```text
 valerie/
+├── .agents/
+├── .github/
+│   └── workflows/
+│
+├── archive/
+│   └── valerie-cli/
+│
+├── assets/
+├── deploy/
+├── docs/
 ├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── stores/
-│   │   └── hooks/
-│   ├── Dockerfile.dev
-│   └── package.json
+│   └── src/
+│       ├── components/
+│       ├── hooks/
+│       ├── pages/
+│       └── stores/
+│
+├── infra/
+├── resources/
+│   └── domain datasets
 │
 ├── src/
 │   └── valerie/
 │       ├── api/
-│       ├── graph/
+│       ├── db/
 │       ├── forensics/
+│       ├── graph/
 │       ├── intelligence/
 │       ├── knowledge/
 │       ├── learning/
-│       ├── db/
 │       ├── llm/
 │       └── worker/
 │
-├── resources/
-│   └── domain prompt datasets
-│
-├── docs/
-│   └── architecture and design documents
-│
-├── deploy/
-├── infra/
 ├── tests/
 │
-├── demo_simulator.py
-├── seed_forensic_campaign.py
-├── purge_db.py
-├── docker-compose.yml
+├── .env.demo
+├── .env.example
 ├── Dockerfile
+├── docker-compose.yml
+├── demo_simulator.py
 ├── DEMO_SETUP.md
 ├── requirements.txt
-└── pytest.ini
+└── cloudbuild.yaml
 ```
 
 ---
 
 ## Technology Stack
 
-| Layer               | Technologies                      |
-| ------------------- | --------------------------------- |
-| Backend             | Python, FastAPI, Uvicorn          |
-| Agent orchestration | LangGraph                         |
-| LLM integration     | LiteLLM, multiple model providers |
-| Database            | MongoDB                           |
-| Messaging           | Redis                             |
-| Frontend            | React, TypeScript, Vite           |
-| Styling             | Tailwind CSS                      |
-| State management    | Zustand                           |
-| Visualization       | React Flow                        |
-| Streaming           | Server-Sent Events                |
-| Analysis            | DBSCAN, Isolation Forest          |
-| Infrastructure      | Docker, Docker Compose            |
+| Layer          | Technologies                      |
+| -------------- | --------------------------------- |
+| Backend        | Python, FastAPI, Uvicorn          |
+| Orchestration  | LangGraph                         |
+| LLM Routing    | LiteLLM, multiple model providers |
+| Database       | MongoDB                           |
+| Messaging      | Redis                             |
+| Frontend       | React, TypeScript, Vite           |
+| Styling        | Tailwind CSS                      |
+| State          | Zustand                           |
+| Visualization  | React Flow                        |
+| Streaming      | Server-Sent Events                |
+| Intelligence   | DBSCAN, Isolation Forest          |
+| Infrastructure | Docker, Docker Compose            |
 
 ---
 
@@ -445,45 +457,55 @@ valerie/
 * MongoDB 6+
 * Redis 7+
 
-### Demo Mode
+---
+
+## Demo Mode
+
+The repository includes a demo environment that can be run without configuring the full LLM stack.
+
+Clone the repository:
 
 ```bash
 git clone https://github.com/imshreyaskn/valerie.git
 cd valerie
+```
 
+Start the demo:
+
+```bash
 cp .env.demo .env
-
 docker-compose up --build
 ```
 
-Generate demo campaign data:
+Then run the simulator:
 
 ```bash
 python demo_simulator.py
 ```
 
-Default local services:
+The demo exposes:
 
 ```text
-Frontend     http://localhost:5173
-API          http://localhost:8080
-Worker       http://localhost:8081
+Frontend   → http://localhost:5173
+API        → http://localhost:8080/health
+Worker     → http://localhost:8081/health
 ```
 
-For the complete demo setup, see `DEMO_SETUP.md`.
+---
 
-### Development Setup
+## Development Setup
+
+Install Python dependencies:
 
 ```bash
-git clone https://github.com/imshreyaskn/valerie.git
-cd valerie
-
 pip install -r requirements.txt
-
-cp .env.example .env
 ```
 
-Configure the required database connections and model-provider credentials.
+Create the environment file:
+
+```bash
+cp .env.example .env
+```
 
 Start MongoDB and Redis:
 
@@ -495,26 +517,19 @@ Start the API:
 
 ```bash
 cd src
-
-uvicorn valerie.api.main:app \
-  --reload \
-  --host 0.0.0.0 \
-  --port 8080
+uvicorn valerie.api.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
-Start the worker:
+Start the worker in another terminal:
 
 ```bash
-uvicorn valerie.worker.executor:app \
-  --host 0.0.0.0 \
-  --port 8081
+uvicorn valerie.worker.executor:app --host 0.0.0.0 --port 8081
 ```
 
 Start the frontend:
 
 ```bash
 cd frontend
-
 npm install
 npm run dev
 ```
@@ -523,13 +538,9 @@ npm run dev
 
 ## Configuration
 
-Copy the example environment file:
+Configuration is provided through `.env`.
 
-```bash
-cp .env.example .env
-```
-
-Configuration covers:
+The example configuration covers:
 
 * MongoDB connection
 * Redis connection
@@ -539,107 +550,140 @@ Configuration covers:
 * Worker configuration
 * Frontend/backend integration
 
-Never commit populated environment files.
+Start from:
+
+```bash
+cp .env.example .env
+```
+
+Then configure the required values for your environment.
 
 ---
 
 ## Example Campaign
 
-A typical evaluation looks like:
+A campaign can be thought of as:
 
 ```text
 Campaign
-   │
-   ├── Domain: BFSI
-   │
-   ├── Attack Generation
-   │       ├── Attack A
-   │       ├── Attack B
-   │       └── Attack C
-   │
-   ├── Target Model
-   │       └── Response
-   │
-   ├── Evaluation
-   │       ├── Risk
-   │       └── Confidence
-   │
-   ├── Forensics
-   │       ├── Prompt Hash
-   │       └── Response Hash
-   │
-   └── Intelligence
-           ├── Cluster
-           └── Anomaly
+├── Domain: BFSI
+│
+├── Attack Generation
+│   ├── Attack A
+│   ├── Attack B
+│   └── Attack C
+│
+├── Target Model
+│   └── Response
+│
+├── Evaluation
+│   ├── Risk
+│   └── Confidence
+│
+├── Forensics
+│   ├── Prompt Hash
+│   └── Response Hash
+│
+└── Intelligence
+    ├── Cluster
+    └── Anomaly
 ```
 
-The dashboard exposes the resulting campaign state and analysis.
+Each attack becomes part of the larger campaign rather than an isolated experiment.
 
 ---
 
-## Why The Forensic Layer Matters
+## CLI
 
-A red-team result is only useful if the underlying evidence can be inspected.
+Valerie also contains a CLI for running and inspecting campaigns.
 
-Instead of storing:
+Initialize the CLI configuration:
 
-```text
-attack → failed
+```bash
+valerie init
 ```
 
-Valerie keeps the relationship between:
+Validate a model configuration:
 
-```text
-attack
-  ↓
-prompt
-  ↓
-target response
-  ↓
-evaluation
-  ↓
-risk
-  ↓
-evidence
+```bash
+valerie validate \
+  --model mistral/mistral-small-latest \
+  --key <YOUR_MISTRAL_KEY>
 ```
 
-This makes it possible to go back from an observed failure to the exact interaction that produced it.
+Run a campaign:
+
+```bash
+valerie run \
+  --domain bfsI \
+  --target-model <TARGET_MODEL> \
+  --target-key <TARGET_KEY>
+```
+
+Optional parameters include:
+
+```text
+--attacker-model
+--judge-model
+--concurrency
+--harm-types
+--techniques
+```
+
+Supported domains include:
+
+```text
+general
+bfsi
+healthcare
+pharmacy
+legal
+hr
+ecommerce
+```
+
+View campaign results:
+
+```bash
+valerie runs results <RUN_ID>
+```
+
+The CLI can render campaign results including:
+
+* PII leakage
+* Toxicity flags
+* Risk scores
+* Attack outcomes
 
 ---
 
 ## Design Decisions
 
-### Generation and evaluation are separate
+### Generation and Evaluation Are Separate
 
-The model responsible for generating an adversarial input does not have to be the same model responsible for judging the target response.
+The model generating an attack does not need to be the model evaluating the target response.
 
-This allows different combinations of attacker, target, and judge models.
+This makes it possible to experiment with different attacker and judge models independently.
 
-### Campaign execution is asynchronous
+### Campaigns Run Asynchronously
 
-LLM calls can be slow and unreliable.
+LLM evaluation can take significant time, especially when running many attacks.
 
-Moving campaign execution into a worker prevents long-running evaluations from blocking normal API requests.
+Campaign execution is therefore handled by workers rather than blocking API requests.
 
-### Evidence is stored with the result
+### Evidence Is Stored With Results
 
-A risk score without its underlying prompt and response is difficult to investigate.
+Prompts, responses, evaluation results, and forensic information are associated with the campaign result so they can be inspected together.
 
-The forensic layer keeps the raw interaction connected to the evaluation.
+### Analysis Happens Across Campaigns
 
-### Analysis happens at campaign level
-
-Individual responses can be difficult to interpret in isolation.
-
-Clustering and anomaly detection provide another level of analysis across the complete campaign.
+Individual attack results are useful, but patterns across many attacks provide more useful information for understanding model behavior.
 
 ---
 
 ## Current Scope
 
-Valerie currently focuses on automated LLM safety evaluation through adversarial prompting.
-
-The main implemented areas are:
+Valerie currently covers:
 
 * Campaign orchestration
 * Adversarial prompt generation
@@ -651,34 +695,53 @@ The main implemented areas are:
 * Real-time SSE updates
 * React-based visualization
 * MongoDB persistence
-* Redis-backed worker execution
+* Redis-based worker execution
+* Knowledge and learning components
 
-The repository also contains knowledge and learning components intended to extend the evaluation loop over time.
+---
+
+## Roadmap
+
+Planned areas of development include:
+
+* Expanded attack strategies
+* Improved judge calibration
+* Cross-campaign intelligence
+* Additional domain datasets
+* Human-review workflows
+* Parallel campaign execution
+* Model comparison reports
+* Attack evolution
 
 ---
 
 ## Lessons Learned
 
-Building Valerie highlighted a different problem from building a normal LLM application.
+Building Valerie highlighted that automated red teaming is not only a prompt-generation problem.
 
-Generating an adversarial prompt is only one part of the system.
+A useful evaluation system also needs infrastructure around:
 
-The harder engineering problem is building the infrastructure around the experiment:
+```text
+Generation
+    ↓
+Execution
+    ↓
+Evaluation
+    ↓
+Evidence
+    ↓
+Analysis
+```
 
-* How is the run represented?
-* How are failures handled?
-* How do we preserve the original evidence?
-* How do we compare thousands of responses?
-* How do we surface unusual results?
-* How does the UI observe a long-running campaign?
-
-That led to an architecture where **generation, execution, evaluation, evidence, and analysis are separate stages**.
+Separating these stages makes it easier to inspect failures, compare experiments, and reason about the results produced by the system.
 
 ---
 
 ## Live Application
 
-[Valerie Dashboard](https://valerie-beta.vercel.app/)
+The current dashboard is available at:
+
+**Valerie Dashboard:** https://valerie-beta.vercel.app/
 
 ---
 
