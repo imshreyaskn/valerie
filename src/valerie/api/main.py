@@ -165,8 +165,12 @@ app.include_router(intelligence.router)
 app.include_router(lineage.router)
 app.include_router(knowledge.router)
 
+@app.api_route("/", methods=["GET", "HEAD"])
+async def root_ping():
+    return {"status": "ok", "service": "valerie-api"}
+
 # Deep Health Check with Distributed Consumer State (M-07, H-02)
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check(request: Request):
     mongo_status = "ok"
     redis_status = "ok"
