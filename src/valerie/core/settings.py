@@ -229,7 +229,13 @@ class Settings(BaseSettings):
     )
 
     allowed_origins: list[str] = Field(
-        default=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "https://alethia.vercel.app"],
+        default=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "https://valerie-beta.vercel.app",
+            "https://alethia.vercel.app",
+        ],
         alias="ALLOWED_ORIGINS",
         description="Allowed CORS origins"
     )
