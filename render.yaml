@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: valerie-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python -m uvicorn valerie.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONPATH
+        value: src
+      - key: ENVIRONMENT
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URI
+        sync: false
+      - key: VALERIE_MASTER_KEY
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: WORKER_SECRET
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
