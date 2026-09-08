@@ -1,6 +1,6 @@
 <div align="center">
 
-<pre>
+<pre style="font-size: 6px; line-height: 0.85; overflow-x: auto;">
              ...                                                                                                        ...              
                -.                                                                                                      .-.               
                ..--. ..                                                                                          ....+...                
@@ -468,11 +468,7 @@ valerie/
 * MongoDB 6+
 * Redis 7+
 
----
-
 ### Demo Mode
-
-The repository includes a demo configuration and simulator for running the dashboard with pre-populated campaign data.
 
 ```bash
 git clone https://github.com/imshreyaskn/valerie.git
@@ -489,7 +485,7 @@ Generate demo campaign data:
 python demo_simulator.py
 ```
 
-The default local services are:
+Default local services:
 
 ```text
 Frontend     http://localhost:5173
@@ -497,28 +493,16 @@ API          http://localhost:8080
 Worker       http://localhost:8081
 ```
 
-For the complete demo setup and troubleshooting instructions, see `DEMO_SETUP.md`.
-
----
+For the complete demo setup, see `DEMO_SETUP.md`.
 
 ### Development Setup
-
-Clone the repository:
 
 ```bash
 git clone https://github.com/imshreyaskn/valerie.git
 cd valerie
-```
 
-Install backend dependencies:
-
-```bash
 pip install -r requirements.txt
-```
 
-Create the environment file:
-
-```bash
 cp .env.example .env
 ```
 
@@ -541,7 +525,7 @@ uvicorn valerie.api.main:app \
   --port 8080
 ```
 
-Start the worker in a separate terminal:
+Start the worker:
 
 ```bash
 uvicorn valerie.worker.executor:app \
@@ -568,7 +552,7 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-The configuration includes values for:
+Configuration covers:
 
 * MongoDB connection
 * Redis connection
@@ -578,7 +562,7 @@ The configuration includes values for:
 * Worker configuration
 * Frontend/backend integration
 
-Never commit the populated `.env` file.
+Never commit populated environment files.
 
 ---
 
@@ -612,7 +596,7 @@ Campaign
            └── Anomaly
 ```
 
-The dashboard then exposes the resulting campaign state and analysis.
+The dashboard exposes the resulting campaign state and analysis.
 
 ---
 
